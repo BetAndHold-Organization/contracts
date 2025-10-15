@@ -1,0 +1,53 @@
+{
+  "name": "theburninggames---hardhatupdated",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "hardhat compile",
+    "clean": "hardhat clean",
+    "test": "hardhat test",
+    "test:coverage": "hardhat test --coverage",
+    "test:solidity": "npx hardhat test --grep JackpotScaling",
+    "deploy:arbitrum": "hardhat ignition deploy ignition/modules/Counter.ts --network arbitrum",
+    "deploy:arbitrum-sepolia": "hardhat ignition deploy ignition/modules/Counter.ts --network arbitrumSepolia"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@apollo/server": "^5.0.0",
+    "@graphql-tools/schema": "^10.0.25",
+    "apollo-server": "^3.13.0",
+    "graphql": "^16.11.0",
+    "graphql-tag": "^2.12.6",
+    "ts-node-dev": "^2.0.0",
+    "tsx": "^4.20.6",
+    "viem": "^2.38.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@chainlink/contracts": "^1.4.0",
+    "@nomicfoundation/hardhat-ethers": "^4.0.1",
+    "@nomicfoundation/hardhat-ignition": "^3.0.3",
+    "@nomicfoundation/hardhat-ignition-viem": "^3.0.3",
+    "@nomicfoundation/hardhat-network-helpers": "^3.0.1",
+    "@nomicfoundation/hardhat-toolbox-viem": "^5.0.0",
+    "@nomicfoundation/hardhat-verify": "^3.0.2",
+    "@nomicfoundation/hardhat-viem": "^3.0.0",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@types/chai": "^4.3.11",
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^22.18.8",
+    "chai": "^4.4.1",
+    "dotenv": "^16.6.1",
+    "forge-std": "github:foundry-rs/forge-std#v1.9.4",
+    "hardhat": "^3.0.6",
+    "mocha": "^10.4.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typechain": "^8.3.2",
+    "typescript": "~5.8.0"
+  },
+  "type": "module"
+}

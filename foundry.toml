@@ -1,0 +1,24 @@
+[profile.default]
+src = "contracts"
+test = "test"
+libs = ["lib", "node_modules"]
+out = "out"
+cache_path = "cache/foundry"
+solc_version = "0.8.20"
+remappings = [
+  "forge-std/=lib/forge-std/src/",
+  "@chainlink/=node_modules/@chainlink/",
+  "@openzeppelin/=node_modules/@openzeppelin/"
+]
+
+[profile.ci]
+fuzz_runs = 256
+
+[profile.invariant]
+runs = 32
+seed = "0x1234"
+
+[fmt]
+line_length = 100
+tab_spaces = 2
+

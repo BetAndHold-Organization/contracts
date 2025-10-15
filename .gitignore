@@ -1,0 +1,38 @@
+.env
+.env.local
+/graph/.env
+/graph/.env.local
+/graph/dist
+/graph/node_modules
+# Node modules
+/node_modules
+
+# Compilation output
+/dist
+
+# pnpm deploy output
+/bundle
+
+# Hardhat Build Artifacts
+/artifacts
+
+# Hardhat compilation (v2) support directory
+/cache
+
+# Typechain output
+/types
+
+# Hardhat coverage reports
+/coverage
+/graph/node_modules
+/graph/dist
+.env
+.env.local
+
+# GraphQL server artifacts
+/graph/node_modules
+/graph/dist
+
+# Environment files
+.env
+.env.local

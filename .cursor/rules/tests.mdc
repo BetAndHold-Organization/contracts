@@ -1,0 +1,6 @@
+---
+description: Testing dialogue with the user policy
+alwaysApply: true
+---
+
+- Always explain the errors on tests as next urgent and inmediate task after executing any test

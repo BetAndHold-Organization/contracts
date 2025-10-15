@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: roulette
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  graphql:
+    build: .
+    working_dir: /app
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgres://admin:admin@postgres:5432/roulette
+      RPC_URL: http://host.docker.internal:8545
+      RPC_WS_URL: ws://host.docker.internal:8545
+      DEPLOYMENTS_PATH: /app/scripts/deployments/local.json
+      HARDFORK_MNEMONIC: "test test test test test test test test test test test junk"
+      ADMIN_API_KEY: changeme
+      PORT: 4000
+    volumes:
+      - ../scripts/deployments:/app/scripts/deployments:ro
+      - ../artifacts:/app/artifacts:ro
+    ports:
+      - "4000:4000"
+
+  indexer:
+    build: .
+    working_dir: /app
+    depends_on:
+      - postgres
+    command: ["npm", "run", "indexer"]
+    environment:
+      DATABASE_URL: postgres://admin:admin@postgres:5432/roulette
+      RPC_URL: http://host.docker.internal:8545
+      RPC_WS_URL: ws://host.docker.internal:8545
+      DEPLOYMENTS_PATH: /app/scripts/deployments/local.json
+      HARDFORK_MNEMONIC: "test test test test test test test test test test test junk"
+      ADMIN_API_KEY: changeme
+    volumes:
+      - ../scripts/deployments:/app/scripts/deployments:ro
+      - ../artifacts:/app/artifacts:ro
+
+volumes:
+  postgres_data:
+
