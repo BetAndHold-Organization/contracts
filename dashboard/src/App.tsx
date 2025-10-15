@@ -7,12 +7,16 @@ import {
   fetchJackpotCap,
   fetchPendingSpin,
   fetchTableConfigByIndex,
+  fetchJackpotState,
+  fetchJackpotTiers,
   findSeed,
   parseWager,
   toAddressOrZero,
   useApproveHandler,
   useFulfillRandomness,
   useHardhatAccounts,
+  useJackpotState,
+  useJackpotTiers,
   useStartSpin,
   useTableConfig,
 } from "./api/operations";
@@ -146,6 +150,8 @@ function OperationsPanel() {
 
   const accountsQuery = useHardhatAccounts();
   const tableConfigQuery = useTableConfig();
+  const jackpotStateQuery = useJackpotState();
+  const jackpotTiersQuery = useJackpotTiers();
   const approveHandler = useApproveHandler();
   const startSpin = useStartSpin();
   const fulfillRandomness = useFulfillRandomness();
@@ -341,91 +347,167 @@ function OperationsPanel() {
     }
   };
 
-  return (
-    <div className="operations-card">
-      <div className="operations-grid">
-        <div>
-          <h3>Start Spin</h3>
-          <div className="form-grid">
-            <label>
-              <span>Wallet</span>
-              <select value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)}>
-                {accounts.map((address) => (
-                  <option key={address} value={address}>
-                    {address}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Wager (EVA)</span>
-              <input value={wager} onChange={(e) => setWager(e.target.value)} placeholder="1.0" />
-            </label>
-            <label>
-              <span>Multiplier (hundredths)</span>
-              <input
-                type="number"
-                value={multiplier}
-                onChange={(e) => setMultiplier(Number(e.target.value))}
-                min={config?.minMultiplier ?? 100}
-                max={config?.maxMultiplier ?? 1000}
-              />
-            </label>
-            <label>
-              <span>Referrer (optional)</span>
-              <input value={referrer} onChange={(e) => setReferrer(e.target.value)} placeholder="0x..." />
-            </label>
-          </div>
-          <div className="operations-actions">
-            <button onClick={handleApprove} disabled={approveHandler.isPending || !selectedAccount}>
-              {approveHandler.isPending ? "Approving…" : "Approve Handler"}
-            </button>
-            <button onClick={handleStart} disabled={startSpin.isPending || !selectedAccount}>
-              {startSpin.isPending ? "Starting…" : "Start Spin"}
-            </button>
-          </div>
-          {config && (
-            <p className="hint">
-              Min wager: {formatEVA(config.minWager.toString())} EVA · Max multiplier: {config.maxMultiplier}
-            </p>
-          )}
-          {statusMessage && <p className="hint status-message">{statusMessage}</p>}
-        </div>
+  const formatTierPrize = (tier: { prizeMetric: bigint; isPercent: boolean }) => {
+    if (tier.isPercent) {
+      return `${Number(tier.prizeMetric) / 100}% of balance`;
+    }
+    return `${formatEVA(tier.prizeMetric.toString())} EVA`;
+  };
 
-        <div>
-          <h3>Fulfill Randomness</h3>
-          <div className="form-grid">
-            <label>
-              <span>Request ID</span>
-              <input value={requestId} onChange={(e) => setRequestId(e.target.value)} placeholder="e.g. 123" />
-            </label>
-            <label>
-              <span>Random Word (optional)</span>
-              <input value={randomWord} onChange={(e) => setRandomWord(e.target.value)} placeholder="Auto if empty" />
-            </label>
-          </div>
-          <div className="operations-actions">
-            <button onClick={handleFulfill} disabled={fulfillRandomness.isPending || !selectedAccount}>
-              {fulfillRandomness.isPending ? "Fulfilling…" : "Fulfill Spin"}
-            </button>
-            <button type="button" onClick={handlePreviewRolls}>
-              Preview Rolls
-            </button>
-          </div>
-          <div className="button-row">
-            <button type="button" onClick={handleForceLose}>Seed: Lose</button>
-            <button type="button" onClick={handleForceMultiplier}>Seed: Multiplier</button>
-            <button type="button" onClick={handleForceReplay}>Seed: Replay</button>
-            <button type="button" onClick={handleForceJackpot}>Seed: Jackpot</button>
-          </div>
-          {derivedRolls && (
-            <div className="derived-rolls">
-              <div>Derived Rolls: {derivedRolls.map((value) => value.toString()).join(", ")}</div>
+  return (
+    <>
+      <div className="operations-card">
+        <div className="operations-grid">
+          <div>
+            <h3>Start Spin</h3>
+            <div className="form-grid">
+              <label>
+                <span>Wallet</span>
+                <select value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)}>
+                  {accounts.map((address) => (
+                    <option key={address} value={address}>
+                      {address}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Wager (EVA)</span>
+                <input value={wager} onChange={(e) => setWager(e.target.value)} placeholder="1.0" />
+              </label>
+              <label>
+                <span>Multiplier (hundredths)</span>
+                <input
+                  type="number"
+                  value={multiplier}
+                  onChange={(e) => setMultiplier(Number(e.target.value))}
+                  min={config?.minMultiplier ?? 100}
+                  max={config?.maxMultiplier ?? 1000}
+                />
+              </label>
+              <label>
+                <span>Referrer (optional)</span>
+                <input value={referrer} onChange={(e) => setReferrer(e.target.value)} placeholder="0x..." />
+              </label>
             </div>
-          )}
+            <div className="operations-actions">
+              <button onClick={handleApprove} disabled={approveHandler.isPending || !selectedAccount}>
+                {approveHandler.isPending ? "Approving…" : "Approve Handler"}
+              </button>
+              <button onClick={handleStart} disabled={startSpin.isPending || !selectedAccount}>
+                {startSpin.isPending ? "Starting…" : "Start Spin"}
+              </button>
+            </div>
+            {config && (
+              <p className="hint">
+                Min wager: {formatEVA(config.minWager.toString())} EVA · Max multiplier: {config.maxMultiplier}
+              </p>
+            )}
+            {statusMessage && <p className="hint status-message">{statusMessage}</p>}
+          </div>
+
+          <div>
+            <h3>Fulfill Randomness</h3>
+            <div className="form-grid">
+              <label>
+                <span>Request ID</span>
+                <input value={requestId} onChange={(e) => setRequestId(e.target.value)} placeholder="e.g. 123" />
+              </label>
+              <label>
+                <span>Random Word (optional)</span>
+                <input value={randomWord} onChange={(e) => setRandomWord(e.target.value)} placeholder="Auto if empty" />
+              </label>
+            </div>
+            <div className="operations-actions">
+              <button onClick={handleFulfill} disabled={fulfillRandomness.isPending || !selectedAccount}>
+                {fulfillRandomness.isPending ? "Fulfilling…" : "Fulfill Spin"}
+              </button>
+              <button type="button" onClick={handlePreviewRolls}>
+                Preview Rolls
+              </button>
+            </div>
+            <div className="button-row">
+              <button type="button" onClick={handleForceLose}>Seed: Lose</button>
+              <button type="button" onClick={handleForceMultiplier}>Seed: Multiplier</button>
+              <button type="button" onClick={handleForceReplay}>Seed: Replay</button>
+              <button type="button" onClick={handleForceJackpot}>Seed: Jackpot</button>
+            </div>
+            {derivedRolls && (
+              <div className="derived-rolls">
+                <div>Derived Rolls: {derivedRolls.map((value) => value.toString()).join(", ")}</div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+      <div className="operations-card table-config-summary">
+        <h4>Current Table Config</h4>
+        {tableConfigQuery.isLoading ? (
+          <p>Loading table configuration…</p>
+        ) : tableConfigQuery.error || !config ? (
+          <p className="text-red-600">Failed to load table configuration.</p>
+        ) : (
+          <ul>
+            <li>Replay BPS: {config.replayBps}</li>
+            <li>Jackpot BPS: {config.jackpotBps}</li>
+            <li>Jackpot Contribution BPS: {config.jackpotContributionBps}</li>
+            <li>Min Multiplier (hundredths): {config.minMultiplier}</li>
+            <li>Max Multiplier (hundredths): {config.maxMultiplier}</li>
+            <li>Min Wager: {formatEVA(config.minWager.toString())} EVA</li>
+            <li>
+              Max Wager: {config.maxWager === 0n ? "Unlimited" : `${formatEVA(config.maxWager.toString())} EVA`}
+            </li>
+          </ul>
+        )}
+      </div>
+      <div className="operations-card jackpot-summary">
+        <h4>Jackpot Status</h4>
+        {jackpotStateQuery.isLoading ? (
+          <p>Loading jackpot state…</p>
+        ) : jackpotStateQuery.error ? (
+          <p className="text-red-600">Failed to fetch jackpot state.</p>
+        ) : !jackpotStateQuery.data ? (
+          <p>No jackpot configured for this deployment.</p>
+        ) : (
+          <ul>
+            <li>Next Tier Index: {jackpotStateQuery.data.nextTierIndex}</li>
+            <li>Total Entries: {jackpotStateQuery.data.totalEntries.toString()}</li>
+            <li>Total Jackpots Won: {jackpotStateQuery.data.totalJackpotsWon.toString()}</li>
+            <li>
+              Total Consolation Paid: {formatEVA(jackpotStateQuery.data.totalConsolationPaid.toString())} EVA
+            </li>
+            <li>Last Winner: {jackpotStateQuery.data.lastWinner}</li>
+            <li>
+              Last Win (timestamp):
+              {jackpotStateQuery.data.lastWinTimestamp === 0n
+                ? " —"
+                : ` ${new Date(Number(jackpotStateQuery.data.lastWinTimestamp) * 1000).toLocaleString()}`}
+            </li>
+          </ul>
+        )}
+
+        {jackpotTiersQuery.isLoading ? (
+          <p>Loading tier ladder…</p>
+        ) : jackpotTiersQuery.error ? (
+          <p className="text-red-600">Failed to fetch tier ladder.</p>
+        ) : jackpotTiersQuery.data && jackpotTiersQuery.data.length > 0 ? (
+          <div className="jackpot-tiers">
+            <h5>Tier Ladder</h5>
+            <ol>
+              {jackpotTiersQuery.data.map((tier, index) => (
+                <li key={index} className={index === (jackpotStateQuery.data?.nextTierIndex ?? -1) ? "current-tier" : ""}>
+                  <strong>Tier {index}</strong>: {formatTierPrize(tier)}
+                  {tier.cost > 0n ? ` · Cost ${formatEVA(tier.cost.toString())} EVA` : tier.useDynamicCost ? " · Dynamic Cost" : ""}
+                  {tier.isTerminal ? " · Terminal" : ""}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : (
+          <p>No tiers configured.</p>
+        )}
+      </div>
+    </>
   );
 }
 

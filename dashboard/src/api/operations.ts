@@ -43,6 +43,9 @@ const COORDINATOR_ABI = parseAbi([
 
 const JACKPOT_ABI = parseAbi([
   "function PROBABILITY_PRECISION() view returns (uint256)",
+  "function getJackpotBalance() view returns (uint256)",
+  "function getJackpotState() view returns (uint8 nextTierIndex,uint256 totalEntries,uint256 totalJackpotsWon,uint256 totalConsolationPaid,address lastWinner,uint256 lastWinTimestamp)",
+  "function getTierLadder() view returns ((uint256 prizeMetric,bool isTerminal,bool isPercent,uint256 fixedBetCost,bool useDynamicCost)[])",
 ]);
 
 type TableConfig = {
@@ -403,6 +406,138 @@ export function toAddressOrZero(value: string): Address {
   const trimmed = value.trim();
   if (!trimmed) return zeroAddress;
   return getAddress(trimmed as Address);
+}
+
+type JackpotState = {
+  nextTierIndex: number;
+  totalEntries: bigint;
+  totalJackpotsWon: bigint;
+  totalConsolationPaid: bigint;
+  lastWinner: Address;
+  lastWinTimestamp: bigint;
+};
+
+type JackpotTier = {
+  prizeMetric: bigint;
+  isTerminal: boolean;
+  isPercent: boolean;
+  fixedBetCost: bigint;
+  useDynamicCost: boolean;
+  cost: bigint;
+  prizeAmount: bigint;
+};
+
+function toJackpotState(raw: any): JackpotState {
+  return {
+    nextTierIndex: Number(raw.nextTierIndex ?? raw[0] ?? 0),
+    totalEntries: toBigInt(raw.totalEntries ?? raw[1] ?? 0n),
+    totalJackpotsWon: toBigInt(raw.totalJackpotsWon ?? raw[2] ?? 0n),
+    totalConsolationPaid: toBigInt(raw.totalConsolationPaid ?? raw[3] ?? 0n),
+    lastWinner: getAddress((raw.lastWinner ?? raw[4] ?? zeroAddress) as Address),
+    lastWinTimestamp: toBigInt(raw.lastWinTimestamp ?? raw[5] ?? 0n),
+  };
+}
+
+function toJackpotTier(raw: any): JackpotTier {
+  return {
+    prizeMetric: toBigInt(raw.prizeMetric ?? raw[0] ?? 0n),
+    isTerminal: Boolean(raw.isTerminal ?? raw[1]),
+    isPercent: Boolean(raw.isPercent ?? raw[2]),
+    fixedBetCost: toBigInt(raw.fixedBetCost ?? raw[3] ?? 0n),
+    useDynamicCost: Boolean(raw.useDynamicCost ?? raw[4]),
+    cost: 0n,
+    prizeAmount: 0n,
+  };
+}
+
+function computePrizeAmount(tier: JackpotTier, balance: bigint): bigint {
+  if (!tier.isPercent) {
+    return tier.prizeMetric;
+  }
+  if (tier.prizeMetric > 10_000n) {
+    return 0n;
+  }
+  let amount = (balance * tier.prizeMetric) / 10_000n;
+  if (tier.isTerminal) {
+    const cap = (balance * 90n) / 100n;
+    if (amount > cap) {
+      amount = cap;
+    }
+  }
+  return amount;
+}
+
+function computeTierCost(tier: JackpotTier, balance: bigint): bigint {
+  if (!tier.useDynamicCost) {
+    return tier.fixedBetCost;
+  }
+  return computePrizeAmount(tier, balance);
+}
+
+export async function fetchJackpotState(): Promise<JackpotState | null> {
+  const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
+  const jackpotAddress = deployment.jackpot;
+  if (!jackpotAddress || jackpotAddress === zeroAddress) {
+    return null;
+  }
+  try {
+    const raw = await client.readContract({
+      address: getAddress(jackpotAddress),
+      abi: JACKPOT_ABI,
+      functionName: "getJackpotState",
+    });
+    return toJackpotState(raw);
+  } catch (error) {
+    console.error("fetchJackpotState error", error);
+    return null;
+  }
+}
+
+export async function fetchJackpotTiers(): Promise<JackpotTier[] | null> {
+  const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
+  const jackpotAddress = deployment.jackpot;
+  if (!jackpotAddress || jackpotAddress === zeroAddress) {
+    return null;
+  }
+  try {
+    const [rawTiers, balance] = await Promise.all([
+      client.readContract({
+        address: getAddress(jackpotAddress),
+        abi: JACKPOT_ABI,
+        functionName: "getTierLadder",
+      }),
+      client.readContract({
+        address: getAddress(jackpotAddress),
+        abi: JACKPOT_ABI,
+        functionName: "getJackpotBalance",
+      }),
+    ]);
+    const tiers = Array.isArray(rawTiers) ? rawTiers.map(toJackpotTier) : [];
+    return tiers.map((tier) => {
+      const prize = computePrizeAmount(tier, balance as bigint);
+      const cost = computeTierCost(tier, balance as bigint);
+      return { ...tier, prizeAmount: prize, cost };
+    });
+  } catch (error) {
+    console.error("fetchJackpotTiers error", error);
+    return null;
+  }
+}
+
+export function useJackpotState() {
+  return useQuery<JackpotState | null, Error>({
+    queryKey: ["jackpot-state", NETWORK],
+    queryFn: fetchJackpotState,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useJackpotTiers() {
+  return useQuery<JackpotTier[] | null, Error>({
+    queryKey: ["jackpot-tiers", NETWORK],
+    queryFn: fetchJackpotTiers,
+    refetchInterval: 5 * 60_000,
+  });
 }
 
 
