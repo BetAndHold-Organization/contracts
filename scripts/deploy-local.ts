@@ -27,6 +27,21 @@ const TIER_COUNT = 9;
 const TIER_START_BPS = 500; // 5.0%
 const TIER_END_BPS = 50;   // 0.5%
 
+const DIRECT_BET_WEIGHTS = [
+  { weight: 5, tierAdvance: 0, tierResetTo: 0, consolationMultiplier: 0, awardsTier: false }, // Lose
+  { weight: 5, tierAdvance: 0, tierResetTo: 0, consolationMultiplier: 1_200, awardsTier: false }, // Consolation 1.2x
+  { weight: 5, tierAdvance: 0, tierResetTo: 0, consolationMultiplier: 1_500, awardsTier: false }, // Consolation 1.5x
+  { weight: 60, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 0
+  { weight: 70, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 1
+  { weight: 40, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 2
+  { weight: 30, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 3
+  { weight: 20, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 4
+  { weight: 15, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 5
+  { weight: 13, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 6
+  { weight: 10, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 7
+  { weight: 5, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 8
+];
+
 function buildTierBps(): number[] {
   const step = (TIER_START_BPS - TIER_END_BPS) / (TIER_COUNT - 1);
   const values: number[] = [];
@@ -114,6 +129,30 @@ function buildJackpotOutcomes() {
   return entries;
 }
 
+function buildDirectBetOutcomes() {
+  const totalWeight = DIRECT_BET_WEIGHTS.reduce((acc, entry) => acc + entry.weight, 0);
+  let running = 0n;
+
+  return DIRECT_BET_WEIGHTS.map((entry, index) => {
+    const isLast = index === DIRECT_BET_WEIGHTS.length - 1;
+    const raw = (entry.weight * 10_000) / totalWeight;
+    const probabilityBps = isLast ? Number(10_000n - running) : Math.round(raw);
+    running += BigInt(probabilityBps);
+
+    if (running > 10_000n) {
+      throw new Error(`Direct bet outcome probabilities overflow: ${running}`);
+    }
+
+    return {
+      cumulativeProbability: running,
+      tierAdvance: entry.tierAdvance,
+      tierResetTo: entry.tierResetTo,
+      consolationMultiplier: entry.consolationMultiplier,
+      awardsTier: entry.awardsTier,
+    };
+  });
+}
+
 async function main() {
   const connection = await network.connect();
   const viem = connection.viem;
@@ -155,6 +194,7 @@ async function main() {
   console.log("Single random roulette:", roulette.address);
 
   const jackpotOutcomes = buildJackpotOutcomes();
+  const directBetOutcomes = buildDirectBetOutcomes();
 
   await handler.write.registerGame([
     roulette.address,
@@ -176,6 +216,14 @@ async function main() {
   ], { account: deployer.account });
 
   await jackpot.write.setGameStatus([roulette.address, true], { account: deployer.account });
+
+  await jackpot.write.configureDirectBet([
+    true,
+    directBetOutcomes,
+  ], { account: deployer.account });
+
+  const directBetOutcomesConfigured = await jackpot.read.getDirectBetOutcomes();
+  console.log("Direct bet outcomes configured:", directBetOutcomesConfigured.length);
 
   await roulette.write.setTableConfig([DEFAULT_TABLE_CONFIG], { account: deployer.account });
 

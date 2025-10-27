@@ -61,3 +61,55 @@ export const PLAYER_BETS_QUERY = gql`
   }
 `;
 
+export const REFERRAL_TREE_QUERY = gql`
+  query ReferralTree($address: String!, $depth: Int) {
+    referralTree(address: $address, depth: $depth) {
+      address
+      referrer
+      level
+    }
+  }
+`;
+
+export const SPIN_PREVIEW_QUERY = gql`
+  query SpinPreview($wager: BigInt!, $multiplier: Int!, $configIndex: Int) {
+    spinPreview(wager: $wager, multiplierHundredths: $multiplier, configIndex: $configIndex) {
+      multiplierBps
+      replayBps
+      jackpotBps
+      loseBps
+      maxPayout
+      jackpotContribution
+    }
+  }
+`;
+
+export const REFERRAL_CONTRIBUTIONS_QUERY = gql`
+  query ReferralContributions($address: String!, $limit: Int) {
+    referralContributions(address: $address, limit: $limit) {
+      asPlayer {
+        id
+        player
+        referrer
+        level
+        amount
+        requestId
+        txHash
+        blockNumber
+        createdAt
+      }
+      asReferrer {
+        id
+        player
+        referrer
+        level
+        amount
+        requestId
+        txHash
+        blockNumber
+        createdAt
+      }
+    }
+  }
+`;
+

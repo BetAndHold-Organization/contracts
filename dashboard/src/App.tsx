@@ -11,12 +11,18 @@ import {
   fetchJackpotTiers,
   findSeed,
   parseWager,
+  previewSpin,
+  type SpinPreview,
   toAddressOrZero,
   useApproveHandler,
   useFulfillRandomness,
   useHardhatAccounts,
   useJackpotState,
   useJackpotTiers,
+  useJackpotOutcomes,
+  useDirectBetOutcomes,
+  useReferralTree,
+  useReferralContributions,
   useStartSpin,
   useTableConfig,
 } from "./api/operations";
@@ -143,28 +149,34 @@ function OperationsPanel() {
   const [referrer, setReferrer] = useState<string>("");
   const [wager, setWager] = useState<string>("1.0");
   const [multiplier, setMultiplier] = useState<number>(150);
+  const [previewWager, setPreviewWager] = useState<string>("1.0");
   const [requestId, setRequestId] = useState<string>("");
   const [randomWord, setRandomWord] = useState<string>("");
   const [derivedRolls, setDerivedRolls] = useState<bigint[] | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
+  const [previewConfigIndex, setPreviewConfigIndex] = useState<number>(-1);
+  const [previewResult, setPreviewResult] = useState<SpinPreview | null>(null);
+  const bpsAsNumber = Number(BPS);
 
   const accountsQuery = useHardhatAccounts();
   const tableConfigQuery = useTableConfig();
   const jackpotStateQuery = useJackpotState();
   const jackpotTiersQuery = useJackpotTiers();
+  const jackpotOutcomesQuery = useJackpotOutcomes();
+  const directBetOutcomesQuery = useDirectBetOutcomes();
   const approveHandler = useApproveHandler();
   const startSpin = useStartSpin();
   const fulfillRandomness = useFulfillRandomness();
 
   const accounts = accountsQuery.data ?? [];
+  const config = tableConfigQuery.data?.config;
+  const scaling = tableConfigQuery.data?.scaling;
 
   useEffect(() => {
     if (!selectedAccount && accounts.length > 0) {
       setSelectedAccount(accounts[0]);
     }
   }, [accounts, selectedAccount]);
-
-  const config = tableConfigQuery.data;
 
   const handleApprove = async () => {
     try {
@@ -183,7 +195,7 @@ function OperationsPanel() {
       if (!selectedAccount) throw new Error("Select a wallet to start a spin");
       const account = getAddress(selectedAccount);
       const ref = referrer.trim() ? getAddress(referrer as `0x${string}`) : toAddressOrZero(referrer);
-      const wagerAmount = parseWager(wager);
+      const previewAmount = parseWager(previewWager);
       const boundedMultiplier = Math.max(1, Math.min(65535, Number(multiplier)));
       const multiplierHundredths = BigInt(boundedMultiplier);
       const result = await startSpin.mutateAsync({
@@ -243,14 +255,30 @@ function OperationsPanel() {
 
   const replayBpsConfig = toBig(config?.replayBps ?? 0);
 
+  const handleSpinPreview = async () => {
+    try {
+      const previewAmount = parseWager(previewWager);
+      const multiplierHundredths = BigInt(Math.max(1, Math.min(65535, Number(multiplier))));
+      const configIndex = Number.isInteger(previewConfigIndex) ? previewConfigIndex : -1;
+      const result = await previewSpin(previewAmount, multiplierHundredths, configIndex);
+      setPreviewResult(result);
+      setStatusMessage(
+        `Preview multiplier=${result.multiplierBps} bps, replay=${result.replayBps} bps, jackpot entry=${result.jackpotBps} bps`,
+      );
+    } catch (error) {
+      console.error("spin preview error", error);
+      alert(`Failed to preview spin: ${error}`);
+    }
+  };
+
   const handleForceLose = async () => {
     try {
       if (!requestId.trim()) throw new Error("Request id required");
       const req = BigInt(requestId);
       const pending = await fetchPendingSpin(req);
-      const table = await fetchTableConfigByIndex(pending.configIndex ?? 0);
+      const { config: tableConfig } = await fetchTableConfigByIndex(pending.configIndex ?? 0);
       const multiplierBps = pending.multiplierBps ?? 0n;
-      const replayBps = BigInt(table.replayBps ?? 0);
+      const replayBps = BigInt(tableConfig.replayBps ?? 0);
       const jackpotBps = pending.jackpotBps ?? 0n;
       const loseThreshold = multiplierBps + replayBps + jackpotBps;
       console.log("forceLose thresholds", {
@@ -291,9 +319,9 @@ function OperationsPanel() {
       if (!requestId.trim()) throw new Error("Request id required");
       const req = BigInt(requestId);
       const pending = await fetchPendingSpin(req);
-      const table = await fetchTableConfigByIndex(pending.configIndex ?? 0);
+      const { config: tableConfig } = await fetchTableConfigByIndex(pending.configIndex ?? 0);
       const multiplierBps = pending.multiplierBps ?? 0n;
-      const replayBps = BigInt(pending.replayBps ?? 0);
+      const replayBps = BigInt(tableConfig.replayBps ?? 0);
       const jackpotCap = await fetchJackpotCap();
       console.log("forceReplay thresholds", {
         multiplierBps: multiplierBps.toString(),
@@ -321,8 +349,8 @@ function OperationsPanel() {
       if (!requestId.trim()) throw new Error("Request id required");
       const req = BigInt(requestId);
       const pending = await fetchPendingSpin(req);
-      const table = await fetchTableConfigByIndex(pending.configIndex ?? 0);
-      const replayBps = BigInt(table.replayBps ?? 0);
+      const { config: tableConfig } = await fetchTableConfigByIndex(pending.configIndex ?? 0);
+      const replayBps = BigInt(tableConfig.replayBps ?? 0);
       const multiplierBps = pending.multiplierBps ?? 0n;
       const jackpotBps = pending.jackpotBps ?? 0n;
       const jackpotCap = await fetchJackpotCap();
@@ -398,6 +426,65 @@ function OperationsPanel() {
                 {startSpin.isPending ? "Starting…" : "Start Spin"}
               </button>
             </div>
+
+            <div className="preview-spin">
+              <h4>Spin Preview Probabilities</h4>
+              <div className="form-grid">
+                <label>
+                  <span>Config Index (blank = current)</span>
+                  <input
+                    type="number"
+                    placeholder="Current"
+                    value={previewConfigIndex < 0 ? "" : previewConfigIndex}
+                    onChange={(event) =>
+                      setPreviewConfigIndex(event.target.value === "" ? -1 : Number(event.target.value))
+                    }
+                    min={0}
+                  />
+                </label>
+              <label>
+                <span>Wager (EVA)</span>
+                <input
+                  value={previewWager}
+                  onChange={(event) => setPreviewWager(event.target.value)}
+                  placeholder="1.0"
+                />
+              </label>
+              </div>
+              <div className="operations-actions">
+                <button type="button" onClick={handleSpinPreview}>
+                  Preview Spin Chances
+                </button>
+              </div>
+              {previewResult && (
+                <div className="preview-results">
+                  <ul>
+                    <li>
+                      Multiplier Chance: {((previewResult.multiplierBps ?? 0) * 100 / bpsAsNumber).toFixed(2)}% ({
+                        previewResult.multiplierBps
+                      } bps)
+                    </li>
+                    <li>
+                      Replay Chance (extra spin): {((previewResult.replayBps ?? 0) * 100 / bpsAsNumber).toFixed(2)}% ({
+                        previewResult.replayBps
+                      } bps)
+                    </li>
+                    <li>
+                      Jackpot Entry Chance: {((previewResult.jackpotBps ?? 0) * 100 / bpsAsNumber).toFixed(2)}% ({
+                        previewResult.jackpotBps
+                      } bps)
+                    </li>
+                    <li>
+                      Lose Chance: {((previewResult.loseBps ?? 0) * 100 / bpsAsNumber).toFixed(2)}% ({
+                        previewResult.loseBps
+                      } bps)
+                    </li>
+                    <li>Max Payout (on multiplier win): {formatEVA(previewResult.maxPayout.toString())} EVA</li>
+                    <li>Jackpot Contribution (per spin): {formatEVA(previewResult.jackpotContribution.toString())} EVA</li>
+                  </ul>
+                </div>
+              )}
+            </div>
             {config && (
               <p className="hint">
                 Min wager: {formatEVA(config.minWager.toString())} EVA · Max multiplier: {config.maxMultiplier}
@@ -447,17 +534,36 @@ function OperationsPanel() {
         ) : tableConfigQuery.error || !config ? (
           <p className="text-red-600">Failed to load table configuration.</p>
         ) : (
-          <ul>
-            <li>Replay BPS: {config.replayBps}</li>
-            <li>Jackpot BPS: {config.jackpotBps}</li>
-            <li>Jackpot Contribution BPS: {config.jackpotContributionBps}</li>
-            <li>Min Multiplier (hundredths): {config.minMultiplier}</li>
-            <li>Max Multiplier (hundredths): {config.maxMultiplier}</li>
-            <li>Min Wager: {formatEVA(config.minWager.toString())} EVA</li>
-            <li>
-              Max Wager: {config.maxWager === 0n ? "Unlimited" : `${formatEVA(config.maxWager.toString())} EVA`}
-            </li>
-          </ul>
+          <>
+            <ul>
+              <li>Replay BPS: {config.replayBps}</li>
+              <li>Jackpot BPS: {config.jackpotBps}</li>
+              <li>Jackpot Contribution BPS: {config.jackpotContributionBps}</li>
+              <li>Min Multiplier (hundredths): {config.minMultiplier}</li>
+              <li>Max Multiplier (hundredths): {config.maxMultiplier}</li>
+              <li>Min Wager: {formatEVA(config.minWager.toString())} EVA</li>
+              <li>
+                Max Wager: {config.maxWager === 0n ? "Unlimited" : `${formatEVA(config.maxWager.toString())} EVA`}
+              </li>
+            </ul>
+            {scaling && (
+              <div className="scaling-summary">
+                <h5>Jackpot Scaling</h5>
+                <ul>
+                  <li>Status: {scaling.enabled ? "Enabled" : "Disabled"}</li>
+                  <li>Curve: {scaling.functionName}</li>
+                  <li>
+                    Jackpot BPS Range: {scaling.minJackpotBps} → {scaling.maxJackpotBps}
+                  </li>
+                  <li>
+                    Eligible Wager Range: {formatEVA(scaling.minJackpotWager.toString())} → {formatEVA(
+                      scaling.maxJackpotWager.toString(),
+                    )} EVA
+                  </li>
+                </ul>
+              </div>
+            )}
+          </>
         )}
       </div>
       <div className="operations-card jackpot-summary">
@@ -505,6 +611,102 @@ function OperationsPanel() {
           </div>
         ) : (
           <p>No tiers configured.</p>
+        )}
+
+        {jackpotOutcomesQuery.isLoading ? (
+          <p>Loading jackpot outcomes…</p>
+        ) : jackpotOutcomesQuery.error ? (
+          <p className="text-red-600">Failed to fetch jackpot outcomes.</p>
+        ) : jackpotOutcomesQuery.data && jackpotOutcomesQuery.data.length > 0 ? (
+          <div className="jackpot-outcomes">
+            <h5>Outcome Probabilities</h5>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Probability</th>
+                  <th>Type</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jackpotOutcomesQuery.data.map((outcome, index) => {
+                  const percent = (outcome.probabilityBps / Number(BPS)) * 100;
+                  const typeLabel = outcome.awardsTier
+                    ? "Tier Reward"
+                    : outcome.consolationMultiplier > 0
+                      ? "Consolation"
+                      : "Lose";
+                  const detailLabel = outcome.awardsTier
+                    ? `Advance ${outcome.tierAdvance}${outcome.tierAdvance === 1 ? " tier" : " tiers"} (reset to ${outcome.tierResetTo})`
+                    : outcome.consolationMultiplier > 0
+                      ? `${(outcome.consolationMultiplier / 100).toFixed(2)}x`
+                      : "—";
+                  return (
+                    <tr key={index} className={outcome.awardsTier ? "jackpot-outcome-tier" : ""}>
+                      <td>{index + 1}</td>
+                      <td>
+                        {percent.toFixed(2)}% ({outcome.probabilityBps} bps) · cumulative {outcome.cumulativeProbability}
+                      </td>
+                      <td>{typeLabel}</td>
+                      <td>{detailLabel}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="hint">Probabilities reflect the on-chain outcome table returned by getGameOutcomes.</p>
+          </div>
+        ) : (
+          <p>No jackpot outcomes configured.</p>
+        )}
+
+        {directBetOutcomesQuery.isLoading ? (
+          <p>Loading direct bet outcomes…</p>
+        ) : directBetOutcomesQuery.error ? (
+          <p className="text-red-600">Failed to fetch direct bet outcomes.</p>
+        ) : directBetOutcomesQuery.data && directBetOutcomesQuery.data.length > 0 ? (
+          <div className="jackpot-outcomes">
+            <h5>Direct Bet Outcome Probabilities</h5>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Probability</th>
+                  <th>Type</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {directBetOutcomesQuery.data.map((outcome, index) => {
+                  const percent = (outcome.probabilityBps / Number(BPS)) * 100;
+                  const typeLabel = outcome.awardsTier
+                    ? "Tier Reward"
+                    : outcome.consolationMultiplier > 0
+                      ? "Consolation"
+                      : "Lose";
+                  const detailLabel = outcome.awardsTier
+                    ? `Advance ${outcome.tierAdvance}${outcome.tierAdvance === 1 ? " tier" : " tiers"} (reset to ${outcome.tierResetTo})`
+                    : outcome.consolationMultiplier > 0
+                      ? `${(outcome.consolationMultiplier / 100).toFixed(2)}x`
+                      : "—";
+                  return (
+                    <tr key={index} className={outcome.awardsTier ? "jackpot-outcome-tier" : ""}>
+                      <td>{index + 1}</td>
+                      <td>
+                        {percent.toFixed(2)}% ({outcome.probabilityBps} bps) · cumulative {outcome.cumulativeProbability}
+                      </td>
+                      <td>{typeLabel}</td>
+                      <td>{detailLabel}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="hint">Configured via configureDirectBet on the jackpot contract.</p>
+          </div>
+        ) : (
+          <p>No direct bet outcomes configured.</p>
         )}
       </div>
     </>
@@ -598,12 +800,19 @@ function PlayersView() {
 
 function PlayerDetail({ address }: { address: string }) {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [treeDepth, setTreeDepth] = useState<number>(3);
+  const [contributionLimit, setContributionLimit] = useState<number>(25);
   const {
     data: betsData,
     isLoading,
     isFetching,
     error,
   } = usePlayerBets(address, cursor);
+  const { data: referralTree, isLoading: treeLoading } = useReferralTree(address, treeDepth);
+  const { data: referralContributions, isLoading: contributionsLoading } = useReferralContributions(
+    address,
+    contributionLimit,
+  );
 
   return (
     <div>
@@ -674,6 +883,133 @@ function PlayerDetail({ address }: { address: string }) {
           </div>
         </>
       )}
+
+      <div className="referral-section">
+        <div className="referral-controls">
+          <label>
+            <span>Tree Depth</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={treeDepth}
+              onChange={(event) => setTreeDepth(Number(event.target.value))}
+            />
+          </label>
+          <label>
+            <span>Contribution Rows</span>
+            <input
+              type="number"
+              min={5}
+              max={200}
+              value={contributionLimit}
+              onChange={(event) => setContributionLimit(Number(event.target.value))}
+            />
+          </label>
+        </div>
+
+        <div className="referral-tree">
+          <h4>Referral Tree</h4>
+          {treeLoading ? (
+            <p>Loading referral tree…</p>
+          ) : referralTree && referralTree.length > 0 ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Level</th>
+                  <th>Address</th>
+                  <th>Referrer</th>
+                </tr>
+              </thead>
+              <tbody>
+                {referralTree.map((node) => (
+                  <tr key={`${node.level}-${node.address}`} className={node.level === 0 ? "current-tier" : ""}>
+                    <td>{node.level}</td>
+                    <td>{node.address}</td>
+                    <td>{node.referrer ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p>No downline found.</p>
+          )}
+        </div>
+
+        <div className="referral-contributions">
+          <h4>Referral Contributions</h4>
+          {contributionsLoading ? (
+            <p>Loading contributions…</p>
+          ) : referralContributions ? (
+            <div className="referral-contribution-columns">
+              <div>
+                <h5>As Referrer</h5>
+                {referralContributions.asReferrer.length === 0 ? (
+                  <p>No referral earnings</p>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Level</th>
+                        <th>Player</th>
+                        <th>Amount</th>
+                        <th>Request</th>
+                        <th>Tx</th>
+                        <th>Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {referralContributions.asReferrer.map((entry) => (
+                        <tr key={entry.id}>
+                          <td>{entry.level}</td>
+                          <td>{entry.player}</td>
+                          <td>{formatEVA(entry.amount)}</td>
+                          <td>{entry.requestId}</td>
+                          <td>{entry.txHash.slice(0, 10)}…</td>
+                          <td>{formatDateTime(entry.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div>
+                <h5>As Player (Upstream)</h5>
+                {referralContributions.asPlayer.length === 0 ? (
+                  <p>No contributions recorded</p>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Level</th>
+                        <th>Referrer</th>
+                        <th>Amount</th>
+                        <th>Request</th>
+                        <th>Tx</th>
+                        <th>Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {referralContributions.asPlayer.map((entry) => (
+                        <tr key={entry.id}>
+                          <td>{entry.level}</td>
+                          <td>{entry.referrer ?? "—"}</td>
+                          <td>{formatEVA(entry.amount)}</td>
+                          <td>{entry.requestId}</td>
+                          <td>{entry.txHash.slice(0, 10)}…</td>
+                          <td>{formatDateTime(entry.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p>No referral contribution data.</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

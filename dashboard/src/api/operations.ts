@@ -15,6 +15,8 @@ import { hardhat } from "viem/chains";
 
 import { loadDeployment } from "../lib/deployments";
 import { getPublicClient } from "../lib/rpcClient";
+import { getGraphQLClient } from "../lib/graphqlClient";
+import { REFERRAL_TREE_QUERY, REFERRAL_CONTRIBUTIONS_QUERY } from "./queries";
 
 const NETWORK = import.meta.env.VITE_NETWORK ?? "local";
 const RPC_URL = import.meta.env.VITE_RPC_URL ?? "http://localhost:8545";
@@ -25,6 +27,9 @@ const MAX_DERIVED_ROLLS = 7;
 const ROULETTE_ABI = parseAbi([
   "function getTableConfig() view returns ((bool enabled,uint16 replayBps,uint16 jackpotBps,uint16 jackpotContributionBps,uint16 minMultiplier,uint16 maxMultiplier,uint256 minWager,uint256 maxWager))",
   "function getTableConfig(uint256 index) view returns ((bool enabled,uint16 replayBps,uint16 jackpotBps,uint16 jackpotContributionBps,uint16 minMultiplier,uint16 maxMultiplier,uint256 minWager,uint256 maxWager))",
+  "function getJackpotScalingConfig() view returns ((bool enabled,uint16 minJackpotBps,uint16 maxJackpotBps,uint256 minJackpotWager,uint256 maxJackpotWager,uint8 functionId,bytes extraData))",
+  "function getJackpotScalingConfig(uint256 index) view returns ((bool enabled,uint16 minJackpotBps,uint16 maxJackpotBps,uint256 minJackpotWager,uint256 maxJackpotWager,uint8 functionId,bytes extraData))",
+  "function previewSpin(uint256 wager,uint256 multiplierHundredths,uint32 configIndex) view returns (uint16 multiplierProbability,uint16 replayProbability,uint16 jackpotProbability,uint16 loseProbability,uint256 maxPayout,uint256 jackpotContribution)",
   "function startSpin(uint256 wager,uint256 multiplierHundredths,address potentialReferrer)",
   "function pendingSpins(uint256 requestId) view returns (address player,uint256 wager,uint256 netStake,uint256 maxPayout,uint256 jackpotContribution,uint24 multiplierHundredths,uint16 multiplierBps,uint16 jackpotBps,uint16 replayBps,uint32 configIndex,bool exists)",
   "event SpinStarted(uint256 indexed requestId,address indexed player,uint256 wager,uint256 netStake,uint256 multiplierHundredths,uint256 maxPayout,uint256 jackpotContribution,uint32 configIndex)",
@@ -46,6 +51,8 @@ const JACKPOT_ABI = parseAbi([
   "function getJackpotBalance() view returns (uint256)",
   "function getJackpotState() view returns (uint8 nextTierIndex,uint256 totalEntries,uint256 totalJackpotsWon,uint256 totalConsolationPaid,address lastWinner,uint256 lastWinTimestamp)",
   "function getTierLadder() view returns ((uint256 prizeMetric,bool isTerminal,bool isPercent,uint256 fixedBetCost,bool useDynamicCost)[])",
+  "function getGameOutcomes(address game) view returns ((uint256 cumulativeProbability,uint8 tierAdvance,uint8 tierResetTo,uint16 consolationMultiplier,bool awardsTier)[])",
+  "function getDirectBetOutcomes() view returns ((uint256 cumulativeProbability,uint8 tierAdvance,uint8 tierResetTo,uint16 consolationMultiplier,bool awardsTier)[])",
 ]);
 
 type TableConfig = {
@@ -57,6 +64,58 @@ type TableConfig = {
   maxMultiplier: number;
   minWager: bigint;
   maxWager: bigint;
+};
+
+type JackpotScalingConfig = {
+  enabled: boolean;
+  minJackpotBps: number;
+  maxJackpotBps: number;
+  minJackpotWager: bigint;
+  maxJackpotWager: bigint;
+  functionId: number;
+  functionName: string;
+  extraData: string;
+};
+
+export type JackpotOutcome = {
+  cumulativeProbability: number;
+  tierAdvance: number;
+  tierResetTo: number;
+  consolationMultiplier: number;
+  awardsTier: boolean;
+  probabilityBps: number;
+};
+
+type ReferralTreeNode = {
+  address: string;
+  referrer: string | null;
+  level: number;
+};
+
+type ReferralContributionEntry = {
+  id: string;
+  player: string;
+  referrer: string | null;
+  level: number;
+  amount: string;
+  requestId: string;
+  txHash: string;
+  blockNumber: string;
+  createdAt: string;
+};
+
+type ReferralContributionSummary = {
+  asPlayer: ReferralContributionEntry[];
+  asReferrer: ReferralContributionEntry[];
+};
+
+export type SpinPreview = {
+  multiplierBps: number;
+  replayBps: number;
+  jackpotBps: number;
+  loseBps: number;
+  maxPayout: bigint;
+  jackpotContribution: bigint;
 };
 
 type StartSpinInput = {
@@ -232,13 +291,22 @@ export async function fetchPendingSpin(requestId: bigint): Promise<PendingSpin> 
 
 export async function fetchTableConfigByIndex(index: number) {
   const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
-  const raw = await client.readContract({
-    address: getAddress(deployment.roulette),
-    abi: ROULETTE_ABI,
-    functionName: "getTableConfig",
-    args: [BigInt(index)],
-  });
-  const config = toTableConfig(raw);
+  const [rawConfig, rawScaling] = await Promise.all([
+    client.readContract({
+      address: getAddress(deployment.roulette),
+      abi: ROULETTE_ABI,
+      functionName: "getTableConfig",
+      args: [BigInt(index)],
+    }),
+    client.readContract({
+      address: getAddress(deployment.roulette),
+      abi: ROULETTE_ABI,
+      functionName: "getJackpotScalingConfig",
+      args: [BigInt(index)],
+    }),
+  ]);
+  const config = toTableConfig(rawConfig);
+  const scaling = toJackpotScalingConfig(rawScaling);
   console.log("fetchTableConfig", {
     index,
     enabled: config.enabled,
@@ -249,8 +317,42 @@ export async function fetchTableConfigByIndex(index: number) {
     maxMultiplier: Number(config.maxMultiplier),
     minWager: config.minWager.toString(),
     maxWager: config.maxWager.toString(),
+    scaling,
   });
-  return config;
+  return { config, scaling };
+}
+
+const CURRENT_CONFIG_SENTINEL = (BigInt(1) << 32n) - 1n;
+
+export async function previewSpin(
+  wager: bigint,
+  multiplierHundredths: bigint,
+  configIndex: number = -1,
+): Promise<SpinPreview> {
+  const indexParam = configIndex < 0 ? CURRENT_CONFIG_SENTINEL : BigInt(configIndex);
+  const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
+  const result = await client.readContract({
+    address: getAddress(deployment.roulette),
+    abi: ROULETTE_ABI,
+    functionName: "previewSpin",
+    args: [wager, multiplierHundredths, indexParam],
+  });
+
+  const multiplierProbability = Number((result as any).multiplierProbability ?? result[0] ?? 0);
+  const replayProbability = Number((result as any).replayProbability ?? result[1] ?? 0);
+  const jackpotProbability = Number((result as any).jackpotProbability ?? result[2] ?? 0);
+  const loseProbability = Number((result as any).loseProbability ?? result[3] ?? 0);
+  const maxPayout = BigInt((result as any).maxPayout ?? result[4] ?? 0n);
+  const jackpotContribution = BigInt((result as any).jackpotContribution ?? result[5] ?? 0n);
+
+  return {
+    multiplierBps: multiplierProbability,
+    replayBps: replayProbability,
+    jackpotBps: jackpotProbability,
+    loseBps: loseProbability,
+    maxPayout,
+    jackpotContribution,
+  };
 }
 
 export async function fetchJackpotCap() {
@@ -287,17 +389,32 @@ export function useHardhatAccounts() {
   });
 }
 
+type TableConfigWithScaling = {
+  config: TableConfig;
+  scaling: JackpotScalingConfig;
+};
+
 export function useTableConfig() {
-  return useQuery<TableConfig, Error>({
+  return useQuery<TableConfigWithScaling, Error>({
     queryKey: ["roulette-config", NETWORK],
     queryFn: async () => {
       const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
-      const raw = await client.readContract({
-        address: getAddress(deployment.roulette),
-        abi: ROULETTE_ABI,
-        functionName: "getTableConfig",
-      });
-      return toTableConfig(raw);
+      const [rawConfig, rawScaling] = await Promise.all([
+        client.readContract({
+          address: getAddress(deployment.roulette),
+          abi: ROULETTE_ABI,
+          functionName: "getTableConfig",
+        }),
+        client.readContract({
+          address: getAddress(deployment.roulette),
+          abi: ROULETTE_ABI,
+          functionName: "getJackpotScalingConfig",
+        }),
+      ]);
+      return {
+        config: toTableConfig(rawConfig),
+        scaling: toJackpotScalingConfig(rawScaling),
+      };
     },
     refetchInterval: 60_000,
   });
@@ -524,6 +641,83 @@ export async function fetchJackpotTiers(): Promise<JackpotTier[] | null> {
   }
 }
 
+export async function fetchJackpotOutcomes(gameAddress?: Address): Promise<JackpotOutcome[] | null> {
+  const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
+  const jackpotAddress = deployment.jackpot;
+  if (!jackpotAddress || jackpotAddress === zeroAddress) {
+    return null;
+  }
+
+  const game = gameAddress ?? getAddress(deployment.roulette);
+
+  try {
+    const rawOutcomes = await client.readContract({
+      address: getAddress(jackpotAddress),
+      abi: JACKPOT_ABI,
+      functionName: "getGameOutcomes",
+      args: [game],
+    });
+
+    let previous = 0;
+    return (rawOutcomes as any[]).map((entry: any) => {
+      const cumulative = Number(entry.cumulativeProbability ?? entry[0] ?? 0);
+      const probabilityBps = cumulative - previous;
+      previous = cumulative;
+      return {
+        cumulativeProbability: cumulative,
+        tierAdvance: Number(entry.tierAdvance ?? entry[1] ?? 0),
+        tierResetTo: Number(entry.tierResetTo ?? entry[2] ?? 0),
+        consolationMultiplier: Number(entry.consolationMultiplier ?? entry[3] ?? 0),
+        awardsTier: Boolean(entry.awardsTier ?? entry[4] ?? false),
+        probabilityBps,
+      } satisfies JackpotOutcome;
+    });
+  } catch (error) {
+    console.error("fetchJackpotOutcomes error", error);
+    return null;
+  }
+}
+
+export async function fetchDirectBetOutcomes(): Promise<JackpotOutcome[] | null> {
+  const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
+  const jackpotAddress = deployment.jackpot;
+  if (!jackpotAddress || jackpotAddress === zeroAddress) {
+    return null;
+  }
+
+  try {
+    const rawOutcomes = await client.readContract({
+      address: getAddress(jackpotAddress),
+      abi: JACKPOT_ABI,
+      functionName: "getDirectBetOutcomes",
+    });
+
+    let previous = 0;
+    const outcomes = (rawOutcomes as any[]).map((entry: any) => {
+      const cumulative = Number(entry.cumulativeProbability ?? entry[0] ?? 0);
+      const probabilityBps = cumulative - previous;
+      previous = cumulative;
+      return {
+        cumulativeProbability: cumulative,
+        tierAdvance: Number(entry.tierAdvance ?? entry[1] ?? 0),
+        tierResetTo: Number(entry.tierResetTo ?? entry[2] ?? 0),
+        consolationMultiplier: Number(entry.consolationMultiplier ?? entry[3] ?? 0),
+        awardsTier: Boolean(entry.awardsTier ?? entry[4] ?? false),
+        probabilityBps,
+      } satisfies JackpotOutcome;
+    });
+    console.log("fetchDirectBetOutcomes", {
+      jackpot: jackpotAddress,
+      count: outcomes.length,
+      lastCumulative: outcomes[outcomes.length - 1]?.cumulativeProbability ?? 0,
+    });
+    return outcomes;
+  } catch (error) {
+    console.error("fetchDirectBetOutcomes error", error);
+    return null;
+  }
+}
+
 export function useJackpotState() {
   return useQuery<JackpotState | null, Error>({
     queryKey: ["jackpot-state", NETWORK],
@@ -538,6 +732,96 @@ export function useJackpotTiers() {
     queryFn: fetchJackpotTiers,
     refetchInterval: 5 * 60_000,
   });
+}
+
+export function useJackpotOutcomes(game?: Address) {
+  return useQuery<JackpotOutcome[] | null, Error>({
+    queryKey: ["jackpot-outcomes", NETWORK, game ?? "default"],
+    queryFn: () => fetchJackpotOutcomes(game),
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+export function useDirectBetOutcomes() {
+  return useQuery<JackpotOutcome[] | null, Error>({
+    queryKey: ["direct-bet-outcomes", NETWORK],
+    queryFn: fetchDirectBetOutcomes,
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+export function useReferralTree(address: string | null, depth: number) {
+  return useQuery<ReferralTreeNode[], Error>({
+    queryKey: ["referral-tree", NETWORK, address, depth],
+    queryFn: async () => {
+      if (!address) {
+        return [];
+      }
+      const client = getGraphQLClient();
+      const data = await client.request<{ referralTree: ReferralTreeNode[] }>(REFERRAL_TREE_QUERY, {
+        address,
+        depth,
+      });
+      return data.referralTree;
+    },
+    enabled: Boolean(address),
+    staleTime: 30_000,
+  });
+}
+
+export function useReferralContributions(address: string | null, limit: number) {
+  return useQuery<ReferralContributionSummary, Error>({
+    queryKey: ["referral-contributions", NETWORK, address, limit],
+    queryFn: async () => {
+      if (!address) {
+        return { asPlayer: [], asReferrer: [] };
+      }
+      const client = getGraphQLClient();
+      const data = await client.request<{ referralContributions: ReferralContributionSummary }>(
+        REFERRAL_CONTRIBUTIONS_QUERY,
+        { address, limit }
+      );
+      return data.referralContributions;
+    },
+    enabled: Boolean(address),
+    staleTime: 30_000,
+  });
+}
+
+function scalingFunctionName(id: number): string {
+  switch (id) {
+    case 0:
+      return "Linear";
+    case 1:
+      return "Quadratic";
+    case 2:
+      return "Logarithmic";
+    case 3:
+      return "Exponential";
+    default:
+      return `Unknown (${id})`;
+  }
+}
+
+function toJackpotScalingConfig(raw: any): JackpotScalingConfig {
+  const enabled = Boolean(raw.enabled ?? raw[0]);
+  const minBps = Number(raw.minJackpotBps ?? raw[1] ?? 0);
+  const maxBps = Number(raw.maxJackpotBps ?? raw[2] ?? 0);
+  const minWager = BigInt(raw.minJackpotWager ?? raw[3] ?? 0n);
+  const maxWager = BigInt(raw.maxJackpotWager ?? raw[4] ?? 0n);
+  const functionId = Number(raw.functionId ?? raw[5] ?? 0);
+  const extraData = (raw.extraData ?? raw[6] ?? "0x") as string;
+
+  return {
+    enabled,
+    minJackpotBps: minBps,
+    maxJackpotBps: maxBps,
+    minJackpotWager: minWager,
+    maxJackpotWager: maxWager,
+    functionId,
+    functionName: scalingFunctionName(functionId),
+    extraData,
+  };
 }
 
 
