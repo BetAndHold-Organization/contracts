@@ -140,7 +140,7 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
     event TierWon(uint8 indexed tierIndex, address indexed player, uint256 payout);
     event JackpotWon(address indexed player, uint256 payout);
 
-    event ConsolationPaid(address indexed player, uint256 payout);
+    event ConsolationPaid(address indexed player, uint256 payout, uint16 consolationMultiplier);
 
     // ---- Errors ----
     error InvalidGame(address game);
@@ -622,7 +622,7 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
             payout = (betAmount * outcome.consolationMultiplier) / 10_000;
             _transferPayout(player, payout);
             state.totalConsolationPaid += payout;
-            emit ConsolationPaid(player, payout);
+            emit ConsolationPaid(player, payout, outcome.consolationMultiplier);
         }
     }
 
