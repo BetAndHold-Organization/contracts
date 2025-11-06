@@ -15,7 +15,9 @@ contract ProgressiveJackpotTest is ProgressiveJackpotTestBase {
     function test_registerGameStoresOutcomes() public {
         ProgressiveJackpot.OutcomeConfig[] memory stored = jackpot.getGameOutcomes(gameA);
         assertEq(stored.length, 4);
-        assertEq(stored[0].cumulativeProbability, 3_000);
+        // First outcome slice set to constant 3000 bps
+        assertEq(stored[0].scaling.minJackpotBps, 3_000);
+        assertEq(stored[0].scaling.maxJackpotBps, 3_000);
         assertTrue(stored[0].awardsTier);
         assertEq(stored[1].consolationMultiplier, 12_000);
         assertEq(stored[2].consolationMultiplier, 15_000);

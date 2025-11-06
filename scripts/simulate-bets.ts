@@ -22,7 +22,97 @@ type DeploymentInfo = {
   jackpot: string;
   roulette: string;
 };
+async function rpcPost(body: any) {
+  const res = await fetch("http://127.0.0.1:8545", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
 
+function zeroOf(type: string): any {
+  if (type === "address") return "0x0000000000000000000000000000000000000000";
+  if (type.startsWith("uint") || type.startsWith("int")) return 0n;
+  if (type === "bool") return false;
+  if (type === "string") return "";
+  if (type.startsWith("bytes")) return "0x";
+  if (type.endsWith("[]")) return [];
+  if (type.startsWith("tuple")) return [];
+  return 0n;
+}
+
+function guessErrorBySelector(abi: any[], selectorHex: `0x${string}`): string | undefined {
+  const selector = selectorHex.slice(0, 10);
+  for (const item of abi) {
+    if (item?.type !== "error" || !item?.name) continue;
+    const inputs = Array.isArray(item.inputs) ? item.inputs : [];
+    try {
+      const args = inputs.map((inp: any) => zeroOf(inp.type));
+      const data = encodeErrorResult({ abi: [item], errorName: item.name, args });
+      if (data.slice(0, 10) === selector) {
+        return `${item.name}(${inputs.map((i: any) => i.type).join(",")})`;
+      }
+    } catch {}
+  }
+  return undefined;
+}
+
+async function decodeRevertExact(params: {
+  from: `0x${string}`;
+  to: `0x${string}`;
+  data: `0x${string}`;
+  abi: any[];
+}) {
+  // 1) debug_traceCall
+  const trace = await rpcPost({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "debug_traceCall",
+    params: [{ from: params.from, to: params.to, data: params.data }, "latest", { disableStorage: true, disableMemory: true, disableStack: false }],
+  });
+  let payload: `0x${string}` | undefined =
+    (trace?.result?.returnValue && String(trace.result.returnValue).startsWith("0x") ? (trace.result.returnValue as `0x${string}`) : undefined) ??
+    (trace?.error?.data && String(trace.error.data).startsWith("0x") ? (trace.error.data as `0x${string}`) : undefined);
+
+  // 2) eth_estimateGas
+  if (!payload) {
+    const est = await rpcPost({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "eth_estimateGas",
+      params: [{ from: params.from, to: params.to, data: params.data }],
+    });
+    const hex = est?.error?.data ?? est?.error?.data?.data;
+    if (typeof hex === "string" && hex.startsWith("0x")) payload = hex as `0x${string}`;
+  }
+
+  // 3) eth_call
+  if (!payload) {
+    const call = await rpcPost({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "eth_call",
+      params: [{ from: params.from, to: params.to, data: params.data }, "latest"],
+    });
+    const hex = call?.error?.data ?? call?.error?.data?.data;
+    if (typeof hex === "string" && hex.startsWith("0x")) payload = hex as `0x${string}`;
+  }
+
+  if (!payload) return { decoded: undefined, selector: undefined, payload: undefined };
+
+  try {
+    const dec = decodeErrorResult({ abi: params.abi, data: payload });
+    const args = (dec.args ?? []).map((a: any) => a?.toString?.() ?? String(a)).join(", ");
+    return { decoded: `${dec.errorName}${args ? `(${args})` : ""}`, selector: payload.slice(0, 10), payload };
+  } catch {
+    if (payload.length === 10) {
+      const sig = guessErrorBySelector(params.abi, payload as `0x${string}`);
+      return { decoded: sig ? `selector ${payload} -> ${sig}` : undefined, selector: payload.slice(0, 10), payload };
+    }
+    return { decoded: undefined, selector: payload.slice(0, 10), payload };
+  }
+}
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -146,6 +236,40 @@ async function main() {
         spinStarted = startLogs[0];
         break;
       } catch (error) {
+        const calldata = encodeFunctionData({
+          abi: roulette.abi,
+          functionName: "startSpin",
+          args: [wager, multiplier, referrerAddress],
+        });
+        // Reproduce exactly via trace to get the revert reason
+const traceResult = await decodeRevertExact({
+  from: player.address as `0x${string}`,
+  to: roulette.address as `0x${string}`,
+  data: calldata,
+  abi: roulette.abi as any[],
+});
+
+// Console line easy to copy/paste into replay
+console.warn(`REPLAY from=${player.address} to=${roulette.address} wager=${wager.toString()} multiplier=${multiplier} ref=${referrerAddress} selector=${traceResult.selector ?? "n/a"} decoded=${traceResult.decoded ?? "n/a"}`);
+
+// Persist in a file to replay later
+try {
+  await fs.mkdir(new URL("./output/", import.meta.url), { recursive: true });
+  await fs.appendFile(
+    new URL("./output/reverts.jsonl", import.meta.url),
+    JSON.stringify({
+      ts: Date.now(),
+      from: player.address,
+      to: roulette.address,
+      wager: wager.toString(),
+      multiplier,
+      referrer: referrerAddress,
+      selector: traceResult.selector,
+      decoded: traceResult.decoded,
+      payload: traceResult.payload,
+    }) + "\n"
+  );
+} catch {}
         const message = String(error);
         let decoded: string | undefined;
         const cause: any = error && typeof error === "object" ? (error as any).cause ?? error : undefined;

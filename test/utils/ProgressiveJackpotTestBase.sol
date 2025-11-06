@@ -3,6 +3,7 @@ pragma solidity 0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {ProgressiveJackpot} from "contracts/ProgressiveJackpot.sol";
+import {JackpotScalingLib} from "contracts/libraries/JackpotScalingLib.sol";
 import {EverValueCoin} from "contracts/Shared/EverValueCoin.sol";
 import {MockRandomProvider} from "../mocks/MockRandomProvider.sol";
 
@@ -105,29 +106,30 @@ contract ProgressiveJackpotTestBase is Test {
 
     function registerGameWithOutcomes(address game) internal {
         ProgressiveJackpot.OutcomeConfig[] memory outcomes = new ProgressiveJackpot.OutcomeConfig[](4);
+        // Convert cumulative [3000,6000,9000,10000] to slices [3000,3000,3000,1000]
         outcomes[0] = ProgressiveJackpot.OutcomeConfig({
-            cumulativeProbability: 3_000,
+            scaling: _constSlice(3000),
             tierAdvance: 1,
             tierResetTo: 0,
             consolationMultiplier: 0,
             awardsTier: true
         });
         outcomes[1] = ProgressiveJackpot.OutcomeConfig({
-            cumulativeProbability: 6_000,
+            scaling: _constSlice(3000),
             tierAdvance: 0,
             tierResetTo: 0,
             consolationMultiplier: 12_000,
             awardsTier: false
         });
         outcomes[2] = ProgressiveJackpot.OutcomeConfig({
-            cumulativeProbability: 9_000,
+            scaling: _constSlice(3000),
             tierAdvance: 0,
             tierResetTo: 0,
             consolationMultiplier: 15_000,
             awardsTier: false
         });
         outcomes[3] = ProgressiveJackpot.OutcomeConfig({
-            cumulativeProbability: 10_000,
+            scaling: _constSlice(1000),
             tierAdvance: 0,
             tierResetTo: 0,
             consolationMultiplier: 0,
@@ -140,29 +142,30 @@ contract ProgressiveJackpotTestBase is Test {
 
     function configureDefaultDirectBet(bool enabled) internal {
         ProgressiveJackpot.OutcomeConfig[] memory outcomes = new ProgressiveJackpot.OutcomeConfig[](4);
+        // Convert cumulative [2500,6000,9000,10000] to slices [2500,3500,3000,1000]
         outcomes[0] = ProgressiveJackpot.OutcomeConfig({
-            cumulativeProbability: 2_500,
+            scaling: _constSlice(2500),
             tierAdvance: 1,
             tierResetTo: 0,
             consolationMultiplier: 0,
             awardsTier: true
         });
         outcomes[1] = ProgressiveJackpot.OutcomeConfig({
-            cumulativeProbability: 6_000,
+            scaling: _constSlice(3500),
             tierAdvance: 0,
             tierResetTo: 0,
             consolationMultiplier: 12_000,
             awardsTier: false
         });
         outcomes[2] = ProgressiveJackpot.OutcomeConfig({
-            cumulativeProbability: 9_000,
+            scaling: _constSlice(3000),
             tierAdvance: 0,
             tierResetTo: 0,
             consolationMultiplier: 15_000,
             awardsTier: false
         });
         outcomes[3] = ProgressiveJackpot.OutcomeConfig({
-            cumulativeProbability: 10_000,
+            scaling: _constSlice(1000),
             tierAdvance: 0,
             tierResetTo: 0,
             consolationMultiplier: 0,
@@ -171,6 +174,19 @@ contract ProgressiveJackpotTestBase is Test {
 
         vm.prank(owner);
         jackpot.configureDirectBet(enabled, outcomes);
+    }
+
+    // Builds a constant-probability slice (bps)
+    function _constSlice(uint16 bps) internal pure returns (JackpotScalingLib.ScalingConfig memory) {
+        return JackpotScalingLib.ScalingConfig({
+            enabled: true,
+            minJackpotBps: bps,
+            maxJackpotBps: bps,
+            minJackpotWager: 0,
+            maxJackpotWager: 1,
+            functionId: JackpotScalingLib.ScalingFunction.Linear,
+            extraData: bytes("")
+        });
     }
 }
 
