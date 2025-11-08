@@ -9,6 +9,7 @@ import {
   fetchTableConfigByIndex,
   fetchJackpotState,
   fetchJackpotTiers,
+  fetchJackpotOutcomes,
   findSeed,
   parseWager,
   previewSpin,
@@ -198,6 +199,7 @@ function OperationsPanel() {
       const previewAmount = parseWager(previewWager);
       const boundedMultiplier = Math.max(1, Math.min(65535, Number(multiplier)));
       const multiplierHundredths = BigInt(boundedMultiplier);
+      const wagerAmount = parseWager(wager);
       const result = await startSpin.mutateAsync({
         account,
         wager: wagerAmount,
@@ -343,7 +345,58 @@ function OperationsPanel() {
       alert(`Failed to compute seed: ${error}`);
     }
   };
-
+  const forceReplays = async (replayCount: number) => {
+    if (!requestId.trim()) throw new Error("Request id required");
+    if (replayCount < 2 || replayCount > 5) throw new Error("Replay count must be 2..5");
+  
+    const req = BigInt(requestId);
+    const pending = await fetchPendingSpin(req);
+    const { config: tableConfig } = await fetchTableConfigByIndex(pending.configIndex ?? 0);
+  
+    const multiplierBps = pending.multiplierBps ?? 0n;
+    const replayBps = BigInt(tableConfig.replayBps ?? 0);
+    if (replayBps === 0n) throw new Error("Replay BPS is zero; cannot force replay");
+    if (multiplierBps === 0n) throw new Error("Multiplier BPS is zero; cannot end on multiplier after replays");
+  
+    // We don't need jackpot roll for pure replay flow
+    const cap = 0n;
+  
+    // Require: for i=0..(replayCount-1): replay slice
+    // Then for i=replayCount: multiplier slice (end on multiplier)
+    const seed = findSeed(
+      (rolls) => {
+        // Guard: ensure we have enough base rolls
+        if (rolls.length < replayCount + 1) return false;
+  
+        for (let i = 0; i < replayCount; i++) {
+          const r = rolls[i];
+          const isReplay = r >= multiplierBps && r < multiplierBps + replayBps;
+          if (!isReplay) return false;
+        }
+  
+        const end = rolls[replayCount];
+        const isMultiplier = end < multiplierBps;
+        return isMultiplier;
+      },
+      cap
+    );
+  
+    setRandomWord(seed.toString());
+    setDerivedRolls(deriveRolls(seed, cap));
+    setStatusMessage(`Seed computed for ${replayCount} replay(s) then multiplier`);
+  };
+  const handleForce2Replays = async () => {
+    try { await forceReplays(2); } catch (e) { alert(`Failed to compute seed: ${e}`); }
+  };
+  const handleForce3Replays = async () => {
+    try { await forceReplays(3); } catch (e) { alert(`Failed to compute seed: ${e}`); }
+  };
+  const handleForce4Replays = async () => {
+    try { await forceReplays(4); } catch (e) { alert(`Failed to compute seed: ${e}`); }
+  };
+  const handleForce5Replays = async () => {
+    try { await forceReplays(5); } catch (e) { alert(`Failed to compute seed: ${e}`); }
+  };
   const handleForceJackpot = async () => {
     try {
       if (!requestId.trim()) throw new Error("Request id required");
@@ -374,7 +427,170 @@ function OperationsPanel() {
       alert(`Failed to compute seed: ${error}`);
     }
   };
-
+  async function selectJackpotSlice(target: { kind: "TIER" | "CONSOLATION" | "LOSE"; multiplierBps?: number }) {
+    const outcomes = await fetchJackpotOutcomes(); // returns cumulativeProbability, consolationMultiplier, awardsTier
+    if (!outcomes || outcomes.length === 0) throw new Error("No jackpot outcomes configured");
+  
+    let prev = 0;
+    const slices = outcomes.map((o) => {
+      const end = o.cumulativeProbability;        // cumulative bps (0..10000)
+      const start = prev;
+      prev = end;
+      const kind = o.awardsTier ? "TIER" : o.consolationMultiplier > 0 ? "CONSOLATION" : "LOSE";
+      return {
+        start,                     // inclusive (bps)
+        end,                       // exclusive (bps)
+        kind,
+        consolationMultiplier: o.consolationMultiplier, // in bps (e.g., 1200, 1500)
+      };
+    });
+  
+    if (target.kind === "CONSOLATION" && target.multiplierBps != null) {
+      const s = slices.find((s) => s.kind === "CONSOLATION" && s.consolationMultiplier === target.multiplierBps);
+      if (!s) throw new Error(`Consolation slice ${target.multiplierBps} bps not found`);
+      return s;
+    }
+  
+    const s = slices.find((s) => s.kind === target.kind);
+    if (!s) throw new Error(`No ${target.kind} slice found`);
+    return s;
+  }
+  
+  const handleForceJackpotTier = async () => {
+    try {
+      if (!requestId.trim()) throw new Error("Request id required");
+      const req = BigInt(requestId);
+      const pending = await fetchPendingSpin(req);
+      const { config: tableConfig } = await fetchTableConfigByIndex(pending.configIndex ?? 0);
+  
+      const multiplierBps = pending.multiplierBps ?? 0n;
+      const replayBps = BigInt(tableConfig.replayBps ?? 0);
+      const jackpotBps = pending.jackpotBps ?? 0n;
+      const cap = await fetchJackpotCap();
+  
+      const slice = await selectJackpotSlice({ kind: "TIER" });
+  
+      const seed = findSeed(
+        (rolls) => {
+          const baseOk =
+            rolls[0] >= multiplierBps + replayBps &&
+            rolls[0] <  multiplierBps + replayBps + jackpotBps;
+          const jr = rolls[6];
+          const jpOk = jr < cap && jr >= BigInt(slice.start) && jr < BigInt(slice.end);
+          return baseOk && jpOk;
+        },
+        cap
+      );
+  
+      setRandomWord(seed.toString());
+      setDerivedRolls(deriveRolls(seed, cap));
+      setStatusMessage(`Seed for Jackpot → Tier slice [${slice.start}, ${slice.end})`);
+    } catch (e) {
+      alert(`Failed to compute seed: ${e}`);
+    }
+  };
+  
+  const handleForceJackpotConsolation1200 = async () => {
+    try {
+      if (!requestId.trim()) throw new Error("Request id required");
+      const req = BigInt(requestId);
+      const pending = await fetchPendingSpin(req);
+      const { config: tableConfig } = await fetchTableConfigByIndex(pending.configIndex ?? 0);
+  
+      const multiplierBps = pending.multiplierBps ?? 0n;
+      const replayBps = BigInt(tableConfig.replayBps ?? 0);
+      const jackpotBps = pending.jackpotBps ?? 0n;
+      const cap = await fetchJackpotCap();
+  
+      const slice = await selectJackpotSlice({ kind: "CONSOLATION", multiplierBps: 1200 });
+  
+      const seed = findSeed(
+        (rolls) => {
+          const baseOk =
+            rolls[0] >= multiplierBps + replayBps &&
+            rolls[0] <  multiplierBps + replayBps + jackpotBps;
+          const jr = rolls[6];
+          const jpOk = jr < cap && jr >= BigInt(slice.start) && jr < BigInt(slice.end);
+          return baseOk && jpOk;
+        },
+        cap
+      );
+  
+      setRandomWord(seed.toString());
+      setDerivedRolls(deriveRolls(seed, cap));
+      setStatusMessage(`Seed for Jackpot → Consolation (1.20x) slice [${slice.start}, ${slice.end})`);
+    } catch (e) {
+      alert(`Failed to compute seed: ${e}`);
+    }
+  };
+  
+  const handleForceJackpotConsolation1500 = async () => {
+    try {
+      if (!requestId.trim()) throw new Error("Request id required");
+      const req = BigInt(requestId);
+      const pending = await fetchPendingSpin(req);
+      const { config: tableConfig } = await fetchTableConfigByIndex(pending.configIndex ?? 0);
+  
+      const multiplierBps = pending.multiplierBps ?? 0n;
+      const replayBps = BigInt(tableConfig.replayBps ?? 0);
+      const jackpotBps = pending.jackpotBps ?? 0n;
+      const cap = await fetchJackpotCap();
+  
+      const slice = await selectJackpotSlice({ kind: "CONSOLATION", multiplierBps: 1500 });
+  
+      const seed = findSeed(
+        (rolls) => {
+          const baseOk =
+            rolls[0] >= multiplierBps + replayBps &&
+            rolls[0] <  multiplierBps + replayBps + jackpotBps;
+          const jr = rolls[6];
+          const jpOk = jr < cap && jr >= BigInt(slice.start) && jr < BigInt(slice.end);
+          return baseOk && jpOk;
+        },
+        cap
+      );
+  
+      setRandomWord(seed.toString());
+      setDerivedRolls(deriveRolls(seed, cap));
+      setStatusMessage(`Seed for Jackpot → Consolation (1.50x) slice [${slice.start}, ${slice.end})`);
+    } catch (e) {
+      alert(`Failed to compute seed: ${e}`);
+    }
+  };
+  
+  const handleForceJackpotLose = async () => {
+    try {
+      if (!requestId.trim()) throw new Error("Request id required");
+      const req = BigInt(requestId);
+      const pending = await fetchPendingSpin(req);
+      const { config: tableConfig } = await fetchTableConfigByIndex(pending.configIndex ?? 0);
+  
+      const multiplierBps = pending.multiplierBps ?? 0n;
+      const replayBps = BigInt(tableConfig.replayBps ?? 0);
+      const jackpotBps = pending.jackpotBps ?? 0n;
+      const cap = await fetchJackpotCap();
+  
+      const slice = await selectJackpotSlice({ kind: "LOSE" });
+  
+      const seed = findSeed(
+        (rolls) => {
+          const baseOk =
+            rolls[0] >= multiplierBps + replayBps &&
+            rolls[0] <  multiplierBps + replayBps + jackpotBps;
+          const jr = rolls[6];
+          const jpOk = jr < cap && jr >= BigInt(slice.start) && jr < BigInt(slice.end);
+          return baseOk && jpOk;
+        },
+        cap
+      );
+  
+      setRandomWord(seed.toString());
+      setDerivedRolls(deriveRolls(seed, cap));
+      setStatusMessage(`Seed for Jackpot → Lose slice [${slice.start}, ${slice.end})`);
+    } catch (e) {
+      alert(`Failed to compute seed: ${e}`);
+    }
+  };
   const formatTierPrize = (tier: { prizeMetric: bigint; isPercent: boolean }) => {
     if (tier.isPercent) {
       return `${Number(tier.prizeMetric) / 100}% of balance`;
@@ -517,7 +733,14 @@ function OperationsPanel() {
               <button type="button" onClick={handleForceLose}>Seed: Lose</button>
               <button type="button" onClick={handleForceMultiplier}>Seed: Multiplier</button>
               <button type="button" onClick={handleForceReplay}>Seed: Replay</button>
-              <button type="button" onClick={handleForceJackpot}>Seed: Jackpot</button>
+              <button type="button" onClick={handleForce2Replays}>Seed: 2 Replays</button>
+              <button type="button" onClick={handleForce3Replays}>Seed: 3 Replays</button>
+              <button type="button" onClick={handleForce4Replays}>Seed: 4 Replays</button>
+              <button type="button" onClick={handleForce5Replays}>Seed: 5 Replays</button>
+              <button type="button" onClick={handleForceJackpotTier}>Seed: Jackpot (Tier)</button>
+              <button type="button" onClick={handleForceJackpotConsolation1200}>Seed: Jackpot (Cons 1.20x)</button>
+              <button type="button" onClick={handleForceJackpotConsolation1500}>Seed: Jackpot (Cons 1.50x)</button>
+              <button type="button" onClick={handleForceJackpotLose}>Seed: Jackpot (Lose)</button>
             </div>
             {derivedRolls && (
               <div className="derived-rolls">
@@ -836,6 +1059,8 @@ function PlayerDetail({ address }: { address: string }) {
                 <th>Net Stake</th>
                 <th>Payout</th>
                 <th>Jackpot</th>
+                <th>Jackpot Result</th> 
+                <th>Consolation</th>                    
                 <th>Spins</th>
                 <th>Multiplier</th>
                 <th>Net Result</th>
@@ -860,6 +1085,11 @@ function PlayerDetail({ address }: { address: string }) {
                     <td>{formatEVA(bet.netStake ?? bet.wager)}</td>
                     <td>{formatEVA(bet.outcome?.payout ?? "0")}</td>
                     <td>{formatEVA(bet.outcome?.jackpotPayout ?? "0")}</td>
+                    <td>{bet.outcome?.jackpotResult ?? "—"}</td>                                              
+                    <td>{bet.outcome?.jackpotConsolationMultiplier                                            
+                      ? `${(Number(bet.outcome.jackpotConsolationMultiplier) / 100).toFixed(2)}x`
+                      : "—"}
+                    </td>
                     <td>{bet.outcome?.spinsConsumed ?? "-"}</td>
                     <td>{(bet.multiplierHundredths / 100).toFixed(2)}x</td>
                     <td className={netResult < 0n ? "negative" : netResult > 0n ? "positive" : ""}>

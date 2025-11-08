@@ -95,23 +95,29 @@ export async function fetchBets(
     take,
     skip: args.cursor ? 1 : 0,
     cursor: args.cursor ? { id: args.cursor } : undefined,
-    include: { outcome: true },
+    include: { outcome: true, jackpotEvents: true },
   });
 
   const totalCount = await db.bet.count({ where });
   const nextCursor = bets.length === take ? bets[bets.length - 1].id : null;
 
   return {
-    nodes: bets.map((bet) => ({
-      ...normalizeBet(bet),
-      outcome: bet.outcome
-        ? {
-            ...bet.outcome,
-            payout: bet.outcome.payout.toString(),
-            jackpotPayout: bet.outcome.jackpotPayout.toString(),
-          }
-        : null,
-    })),
+    nodes: bets.map((bet) => {
+      const normalized = normalizeBet(bet);
+      const { jackpotResult, jackpotConsolationMultiplier } =
+        deriveJackpotOutcome(bet.jackpotEvents);
+
+      return {
+        ...normalized,
+        outcome: bet.outcome
+          ? {
+              ...normalized.outcome,
+              jackpotResult,
+              jackpotConsolationMultiplier,
+            }
+          : null,
+      };
+    }),
     totalCount,
     nextCursor,
   };
@@ -125,14 +131,28 @@ export async function fetchBetByIdentifiers(
   if (args.id) orClauses.push({ id: args.id });
   if (args.requestId) orClauses.push({ requestId: BigInt(args.requestId) });
   if (args.txHash) orClauses.push({ txHash: args.txHash.toLowerCase() });
-
   const bet = await db.bet.findFirst({
     where: {
       OR: orClauses,
     },
-    include: { outcome: true },
+    include: { outcome: true, jackpotEvents: true }, // NEW
   });
-  return bet ? normalizeBet(bet) : null;
+  if (!bet) return null;
+
+  const normalized = normalizeBet(bet);
+  const { jackpotResult, jackpotConsolationMultiplier } =
+    deriveJackpotOutcome(bet.jackpotEvents);
+
+  return bet.outcome
+    ? {
+        ...normalized,
+        outcome: {
+          ...normalized.outcome,
+          jackpotResult,
+          jackpotConsolationMultiplier,
+        },
+      }
+    : normalized;
 }
 
 export async function fetchPlayer(db: PrismaClient, address: string) {
@@ -275,4 +295,37 @@ function normalizeBet(bet: any) {
         }
       : null,
   };
+}
+
+function deriveJackpotOutcome(
+  events: Array<{
+    type: "TIER" | "JACKPOT" | "CONSOLATION";
+    consolationMultiplier: any | null;
+  }>
+): { jackpotResult: string; jackpotConsolationMultiplier: number } {
+  if (!events || events.length === 0) {
+    return { jackpotResult: "LOSE", jackpotConsolationMultiplier: 0 };
+  }
+
+  const hasConsolation = events.find((e) => e.type === "CONSOLATION");
+  if (hasConsolation) {
+    const mulRaw = hasConsolation.consolationMultiplier;
+    const mul =
+      mulRaw == null
+        ? 0
+        : typeof mulRaw === "string"
+        ? Number(mulRaw)
+        : Number((mulRaw as any).toString?.() ?? mulRaw);
+    return {
+      jackpotResult: "CONSOLATION",
+      jackpotConsolationMultiplier: mul,
+    };
+  }
+
+  const hasTier = events.find((e) => e.type === "TIER" || e.type === "JACKPOT");
+  if (hasTier) {
+    return { jackpotResult: "TIER", jackpotConsolationMultiplier: 0 };
+  }
+
+  return { jackpotResult: "LOSE", jackpotConsolationMultiplier: 0 };
 }

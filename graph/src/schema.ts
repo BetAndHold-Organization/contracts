@@ -39,6 +39,8 @@ const typeDefs = gql`
     fulfillTx: String
     failureReason: String
     resolvedAt: DateTime!
+    jackpotResult: String          # NEW: "LOSE" | "TIER" | "CONSOLATION"
+    jackpotConsolationMultiplier: Int # NEW: bps (0 if none)
   }
 
   type Bet {

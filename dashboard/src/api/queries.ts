@@ -53,6 +53,8 @@ export const PLAYER_BETS_QUERY = gql`
           jackpotPayout
           spinsConsumed
           failureReason
+          jackpotResult
+          jackpotConsolationMultiplier
         }
       }
       totalCount

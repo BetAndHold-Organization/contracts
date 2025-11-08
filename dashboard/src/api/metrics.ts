@@ -61,6 +61,8 @@ type PlayerBetsResponse = {
         spinsConsumed: number;
         failureReason?: string | null;
         netResult?: string;
+        jackpotResult?: string | null;
+        jackpotConsolationMultiplier?: number | null;
       } | null;
     }>;
     totalCount: number;
