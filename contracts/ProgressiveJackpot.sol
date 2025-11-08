@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IRandomConsumer.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {JackpotScalingLib} from "./libraries/JackpotScalingLib.sol";
+
 interface IRandomProviderMinimal {
     function requestRandomNumber(uint256 maxNumber) external returns (uint256 requestId);
 }
@@ -649,24 +650,27 @@ function _validateOutcomes(OutcomeConfig[] calldata outcomes) internal pure {
         }
     }
 
-    function _updateProgression(
-        JackpotState storage state,
-        uint8 currentTier,
-        OutcomeConfig memory outcome
-    ) internal {
-        if (!outcome.awardsTier) {
-            return;
-        }
-
-        uint8 destination = currentTier + outcome.tierAdvance;
-        if (outcome.tierAdvance == 0) destination = currentTier;
-
-        if (destination >= tierConfigs.length || tierConfigs[destination].isTerminal) {
-            state.nextTierIndex = outcome.tierResetTo;
-        } else {
-            state.nextTierIndex = destination;
-        }
+function _updateProgression(
+    JackpotState storage state,
+    uint8 currentTier,
+    OutcomeConfig memory outcome
+) internal {
+    if (!outcome.awardsTier) {
+        return;
     }
+
+    uint8 destination = currentTier + outcome.tierAdvance;
+    if (outcome.tierAdvance == 0) destination = currentTier;
+
+    // Reset only when the CURRENT tier is terminal, or when destination goes past the ladder
+    if (destination >= tierConfigs.length) {
+        state.nextTierIndex = outcome.tierResetTo;     // clamp overflow to reset
+    } else if (tierConfigs[currentTier].isTerminal) {   // current tier is terminal → reset
+        state.nextTierIndex = outcome.tierResetTo;
+    } else {
+        state.nextTierIndex = destination;              // normal advance (e.g., 7 → 8)
+    }
+}
 
     // ---- View helpers ----
 
