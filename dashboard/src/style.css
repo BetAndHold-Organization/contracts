@@ -186,3 +186,103 @@
   font-style: italic;
 }
 
+/* Container sizing */
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* Players two-column layout */
+.players-layout {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* Left column (All Players) */
+.players-list {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.players-list table {
+  width: 100%;
+  table-layout: fixed;      /* keep long addresses from blowing width */
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.players-list thead th,
+.players-list tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  word-break: break-all;
+}
+
+/* Right column (Player Bets) */
+.player-detail {
+  min-width: 0;             /* allow grid to shrink this column */
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  overflow: hidden;
+}
+
+/* Make the bets table horizontally scroll if needed */
+.player-detail .table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-height: 70vh;         /* keep within viewport */
+}
+
+/* Optional compact table style */
+.player-detail table {
+  width: 100%;
+  min-width: 960px;         /* ensure columns have breathing room */
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.player-detail thead th,
+.player-detail tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  white-space: nowrap;
+}
+
+/* Sticky header for the bets table */
+.player-detail thead th {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+}
+
+/* Numeric alignment helpers (optional) */
+.player-detail td:nth-child(5),
+.player-detail td:nth-child(6),
+.player-detail td:nth-child(9) {
+  text-align: right;
+}
+
+/* Responsive: stack columns on narrow screens */
+@media (max-width: 1024px) {
+  .players-layout {
+    grid-template-columns: 1fr;
+  }
+  .players-list {
+    max-height: 40vh;
+  }
+  .player-detail .table-scroll {
+    max-height: 50vh;
+  }
+}

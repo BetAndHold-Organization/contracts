@@ -638,10 +638,13 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
         uint8 destination = currentTier + outcome.tierAdvance;
         if (outcome.tierAdvance == 0) destination = currentTier;
 
-        if (destination >= tierConfigs.length || tierConfigs[destination].isTerminal) {
+        // Reset only when the CURRENT tier is terminal, or when destination goes past the ladder
+        if (destination >= tierConfigs.length) {
+            state.nextTierIndex = outcome.tierResetTo;     // clamp overflow to reset
+        } else if (tierConfigs[currentTier].isTerminal) {   // current tier is terminal → reset
             state.nextTierIndex = outcome.tierResetTo;
         } else {
-            state.nextTierIndex = destination;
+            state.nextTierIndex = destination;              // normal advance (e.g., 7 → 8)
         }
     }
 
