@@ -937,6 +937,7 @@ function OperationsPanel() {
 }
 
 function PlayersView() {
+  
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
   const [playersCursor, setPlayersCursor] = useState<string | undefined>(undefined);
   const {
@@ -945,14 +946,36 @@ function PlayersView() {
     isFetching,
     error,
   } = usePlayers(playersCursor);
-
+  const [search, setSearch] = useState<string>("");
+  const filteredNodes =
+    playersData
+      ? playersData.nodes.filter((p) =>
+          p.address.toLowerCase().includes(search.trim().toLowerCase()),
+        )
+      : [];
   return (
     <div className="players-layout">
       <div className="players-list">
+      <div className="players-list-header">
+        <h3>All Players</h3>
+        {isFetching && <span className="loading">Refreshing…</span>}
+      </div>
         <div className="players-list-header">
-          <h3>All Players</h3>
-          {isFetching && <span className="loading">Refreshing…</span>}
-        </div>
+  <h3>All Players</h3>
+  {isFetching && <span className="loading">Refreshing…</span>}
+</div>
+
+<div className="form-grid" style={{ gap: 8, marginBottom: 8 }}>
+  <input
+    value={search}
+    onChange={(e) => setSearch(e.target.value)}
+    placeholder="Search address (partial)…"
+    style={{ width: "100%" }}
+  />
+  <small style={{ color: "#64748b" }}>
+    Showing {filteredNodes.length}{playersData ? ` of ${playersData.totalCount}` : ""} on this page
+  </small>
+</div>
 
         {isLoading && <div>Loading players…</div>}
         {error && <div className="error">Failed to load players.</div>}
@@ -970,7 +993,7 @@ function PlayersView() {
                 </tr>
               </thead>
               <tbody>
-                {playersData.nodes.map((player) => {
+                {filteredNodes.map((player) => {
                   const net = BigInt(player.netResult);
 
                   return (
@@ -993,19 +1016,13 @@ function PlayersView() {
             </table>
 
             <div className="pagination-controls">
-              <button
-                onClick={() => setPlayersCursor(undefined)}
-                disabled={!playersCursor && !playersData.nextCursor}
-              >
-                Reset
-              </button>
-              <button
-                onClick={() => setPlayersCursor(playersData.nextCursor ?? undefined)}
-                disabled={!playersData.nextCursor}
-              >
-                Next
-              </button>
-            </div>
+      <button onClick={() => setPlayersCursor(undefined)} disabled={!playersCursor && !playersData.nextCursor}>
+        Reset
+      </button>
+      <button onClick={() => setPlayersCursor(playersData.nextCursor ?? undefined)} disabled={!playersData.nextCursor}>
+        Next
+      </button>
+    </div>
           </>
         )}
       </div>

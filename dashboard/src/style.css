@@ -206,7 +206,8 @@
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   max-height: 70vh;
   display: flex;
   flex-direction: column;

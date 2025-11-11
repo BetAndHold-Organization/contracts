@@ -209,7 +209,7 @@ async function main() {
   await randomProvider.write.setConsumerStatus([roulette.address, true, CONSUMER_RANGE_LIMIT], { account: deployer.account });
 
   await roulette.write.setJackpot([jackpot.address], { account: deployer.account });
-
+  await randomProvider.write.setConsumerStatus([jackpot.address, true, CONSUMER_RANGE_LIMIT], { account: deployer.account });
   await jackpot.write.registerGame([
     roulette.address,
     jackpotOutcomes,
@@ -254,7 +254,21 @@ async function main() {
   console.log("House funded with 100 EVA at", house.account.address);
   console.log("Fallback funded with 100 EVA at", fallback.account.address);
   console.log("Player funded with 100 EVA at", player.account.address);
+await jackpot.write.setPaymentHandler([handler.address], { account: deployer.account });
+console.log("✓ Payment handler set on jackpot");
 
+// ⭐️ NUEVO: Registrar jackpot en payment handler
+await handler.write.registerGame([
+  jackpot.address,
+  jackpot.address,
+  house.account.address,
+  HOUSE_EDGE_BPS,
+  REFERRAL_BPS,
+], { account: deployer.account });
+console.log("✓ Jackpot registered in payment handler");
+
+await handler.write.setGameStatus([jackpot.address, true], { account: deployer.account });
+console.log("✓ Jackpot enabled in payment handler");
   console.log("\nConfiguration Summary:");
   console.log("  Token:", token.address);
   console.log("  Coordinator:", coordinator.address);
