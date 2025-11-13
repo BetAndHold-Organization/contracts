@@ -23,40 +23,11 @@ const SUBSCRIPTION_ID = 1n;
 const JACKPOT_START = parseEther("30");
 const CONSUMER_RANGE_LIMIT = 7n;
 
+// New scaled/static probability configuration in bps
 const TIER_COUNT = 9;
-const TIER_START_BPS = 500; // 5.0%
-const TIER_END_BPS = 50;   // 0.5%
-
-const DIRECT_BET_WEIGHTS = [
-  { weight: 5, tierAdvance: 0, tierResetTo: 0, consolationMultiplier: 0, awardsTier: false }, // Lose
-  { weight: 5, tierAdvance: 0, tierResetTo: 0, consolationMultiplier: 1_200, awardsTier: false }, // Consolation 1.2x
-  { weight: 5, tierAdvance: 0, tierResetTo: 0, consolationMultiplier: 1_500, awardsTier: false }, // Consolation 1.5x
-  { weight: 60, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 0
-  { weight: 70, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 1
-  { weight: 40, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 2
-  { weight: 30, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 3
-  { weight: 20, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 4
-  { weight: 15, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 5
-  { weight: 13, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 6
-  { weight: 10, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 7
-  { weight: 5, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true }, // Tier 8
-];
-
-function buildTierBps(): number[] {
-  const step = (TIER_START_BPS - TIER_END_BPS) / (TIER_COUNT - 1);
-  const values: number[] = [];
-  for (let i = 0; i < TIER_COUNT; i += 1) {
-    const raw = TIER_START_BPS - i * step;
-    values.push(Math.round(raw));
-  }
-  return values;
-}
-
-const TIER_BPS = buildTierBps();
-const CONSOLATION1_BPS = 2_000; // 20%
-const CONSOLATION2_BPS = 3_000; // 30%
-const TOTAL_TIER_BPS = TIER_BPS.reduce((acc, value) => acc + value, 0);
-const LOSE_BPS = 10_000 - (CONSOLATION1_BPS + CONSOLATION2_BPS + TOTAL_TIER_BPS);
+const LOSE_BASE_BPS = 1_000; // 10%
+const CONSOLATION_12_BPS = 1_500; // 15%
+const CONSOLATION_15_BPS = 1_000; // 10%
 
 function buildTierLadder() {
   return Array.from({ length: TIER_COUNT }, (_, index) => ({
@@ -68,89 +39,122 @@ function buildTierLadder() {
   }));
 }
 
-function buildJackpotOutcomes() {
-  const entries: {
-    cumulativeProbability: bigint;
-    tierAdvance: number;
-    tierResetTo: number;
-    consolationMultiplier: number;
-    awardsTier: boolean;
-  }[] = [];
+// Scaling function ids (match JackpotScalingLib.ScalingFunction)
+const SCALING_LINEAR = 0;
+const SCALING_QUADRATIC = 1;
+const SCALING_LOG = 2;
 
-  let running = 0n;
-  if (LOSE_BPS > 0) {
-    running += BigInt(LOSE_BPS);
-    entries.push({
-      cumulativeProbability: running,
-      tierAdvance: 0,
-      tierResetTo: 0,
-      consolationMultiplier: 0,
-      awardsTier: false,
-    });
-  }
+type ScalingConfig = {
+  enabled: boolean;
+  minJackpotBps: number;
+  maxJackpotBps: number;
+  minJackpotWager: bigint;
+  maxJackpotWager: bigint;
+  functionId: number;
+  extraData: `0x${string}`;
+};
 
-  if (CONSOLATION1_BPS > 0) {
-    running += BigInt(CONSOLATION1_BPS);
-    entries.push({
-      cumulativeProbability: running,
-      tierAdvance: 0,
-      tierResetTo: 0,
-      consolationMultiplier: 1_200,
-      awardsTier: false,
-    });
-  }
+type OutcomeConfig = {
+  scaling: ScalingConfig;
+  tierAdvance: number;
+  tierResetTo: number;
+  consolationMultiplier: number;
+  awardsTier: boolean;
+};
 
-  if (CONSOLATION2_BPS > 0) {
-    running += BigInt(CONSOLATION2_BPS);
-    entries.push({
-      cumulativeProbability: running,
-      tierAdvance: 0,
-      tierResetTo: 0,
-      consolationMultiplier: 1_500,
-      awardsTier: false,
-    });
-  }
-
-  for (let i = 0; i < TIER_COUNT; i += 1) {
-    running += BigInt(TIER_BPS[i]);
-    entries.push({
-      cumulativeProbability: running,
-      tierAdvance: 1,
-      tierResetTo: 0,
-      consolationMultiplier: 0,
-      awardsTier: true,
-    });
-  }
-
-  if (running !== 10_000n) {
-    throw new Error(`Jackpot outcome probabilities sum to ${running}, expected 10000`);
-  }
-
-  return entries;
+function scalingConst(bps: number): ScalingConfig {
+  return {
+    enabled: true,
+    minJackpotBps: bps,
+    maxJackpotBps: bps,
+    minJackpotWager: 0n,
+    maxJackpotWager: 1n,
+    functionId: SCALING_LINEAR,
+    extraData: "0x" as `0x${string}`,
+  };
 }
 
-function buildDirectBetOutcomes() {
-  const totalWeight = DIRECT_BET_WEIGHTS.reduce((acc, entry) => acc + entry.weight, 0);
-  let running = 0n;
+function scalingRange(minBps: number, maxBps: number, minBal: string, maxBal: string, fn: number): ScalingConfig {
+  return {
+    enabled: true,
+    minJackpotBps: minBps,
+    maxJackpotBps: maxBps,
+    minJackpotWager: parseEther(minBal),
+    maxJackpotWager: parseEther(maxBal),
+    functionId: fn,
+    extraData: "0x" as `0x${string}`,
+  };
+}
 
-  return DIRECT_BET_WEIGHTS.map((entry, index) => {
-    const isLast = index === DIRECT_BET_WEIGHTS.length - 1;
-    const raw = (entry.weight * 10_000) / totalWeight;
-    const probabilityBps = isLast ? Number(10_000n - running) : Math.round(raw);
-    running += BigInt(probabilityBps);
+function buildScaledOutcomes(): OutcomeConfig[] {
+  const outcomes: OutcomeConfig[] = [];
 
-    if (running > 10_000n) {
-      throw new Error(`Direct bet outcome probabilities overflow: ${running}`);
-    }
-
-    return {
-      cumulativeProbability: running,
-      tierAdvance: entry.tierAdvance,
-      tierResetTo: entry.tierResetTo,
-      consolationMultiplier: entry.consolationMultiplier,
-      awardsTier: entry.awardsTier,
-    };
+  // 0: Lose base 10%
+  outcomes.push({
+    scaling: scalingConst(LOSE_BASE_BPS),
+    tierAdvance: 0,
+    tierResetTo: 0,
+    consolationMultiplier: 0,
+    awardsTier: false,
   });
+
+  // 1: Consolation 1.2x at 15%
+  outcomes.push({
+    scaling: scalingConst(CONSOLATION_12_BPS),
+    tierAdvance: 0,
+    tierResetTo: 0,
+    consolationMultiplier: 1_200,
+    awardsTier: false,
+  });
+
+  // 2: Consolation 1.5x at 10%
+  outcomes.push({
+    scaling: scalingConst(CONSOLATION_15_BPS),
+    tierAdvance: 0,
+    tierResetTo: 0,
+    consolationMultiplier: 1_500,
+    awardsTier: false,
+  });
+
+  // 3..11: Tiers 1..9 per spec
+  outcomes.push({
+    scaling: scalingRange(100, 7_000, "15", "1000", SCALING_LINEAR),
+    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+  });
+  outcomes.push({
+    scaling: scalingRange(100, 7_000, "20", "1000", SCALING_LINEAR),
+    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+  });
+  outcomes.push({
+    scaling: scalingRange(100, 7_000, "25", "1000", SCALING_LINEAR),
+    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+  });
+  outcomes.push({
+    scaling: scalingRange(100, 6_500, "50", "1000", SCALING_LINEAR),
+    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+  });
+  outcomes.push({
+    scaling: scalingRange(100, 6_500, "60", "1000", SCALING_LINEAR),
+    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+  });
+  outcomes.push({
+    scaling: scalingRange(100, 7_000, "70", "1000", SCALING_LINEAR),
+    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+  });
+  outcomes.push({
+    scaling: scalingRange(100, 7_000, "100", "1500", SCALING_LINEAR),
+    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+  });
+  outcomes.push({
+    scaling: scalingRange(50, 5_000, "100", "2500", SCALING_QUADRATIC),
+    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+  });
+  outcomes.push({
+    scaling: scalingRange(50, 7_000, "100", "10000", SCALING_LOG),
+    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+  });
+
+  return outcomes;
 }
 
 async function main() {
@@ -193,8 +197,8 @@ async function main() {
   const roulette = await viem.deployContract("SingleRandomRoulette", [handler.address, randomProvider.address, token.address]);
   console.log("Single random roulette:", roulette.address);
 
-  const jackpotOutcomes = buildJackpotOutcomes();
-  const directBetOutcomes = buildDirectBetOutcomes();
+  const jackpotOutcomes = buildScaledOutcomes();
+  const directBetOutcomes = buildScaledOutcomes();
 
   await handler.write.registerGame([
     roulette.address,
@@ -210,10 +214,13 @@ async function main() {
 
   await roulette.write.setJackpot([jackpot.address], { account: deployer.account });
   await randomProvider.write.setConsumerStatus([jackpot.address, true, CONSUMER_RANGE_LIMIT], { account: deployer.account });
-  await jackpot.write.registerGame([
-    roulette.address,
-    jackpotOutcomes,
-  ], { account: deployer.account });
+  console.log("registerGame outcomes len:", jackpotOutcomes.length);
+  try {
+    await jackpot.write.registerGame([roulette.address, jackpotOutcomes], { account: deployer.account });
+  } catch (e) {
+    console.error("registerGame failed", e);
+    throw e;
+  }
 
   await jackpot.write.setGameStatus([roulette.address, true], { account: deployer.account });
 
@@ -222,11 +229,23 @@ async function main() {
     directBetOutcomes,
   ], { account: deployer.account });
 
+  // Set fallback indices (use index 0 which is the pure lose outcome)
+  await jackpot.write.setGameFallback([roulette.address, 0], { account: deployer.account });
+  await jackpot.write.setDirectFallback([0], { account: deployer.account });
+
   const directBetOutcomesConfigured = await jackpot.read.getDirectBetOutcomes();
   console.log("Direct bet outcomes configured:", directBetOutcomesConfigured.length);
 
   await roulette.write.setTableConfig([DEFAULT_TABLE_CONFIG], { account: deployer.account });
-
+  await roulette.write.setJackpotScalingConfig([{
+    enabled: true,
+    minJackpotBps: 100,                   // 1.00% at low wager
+    maxJackpotBps: 2500,                  // 25.00% at high wager
+    minJackpotWager: parseEther("0.1"),
+    maxJackpotWager: parseEther("140"),
+    functionId: SCALING_LINEAR,           // 0
+    extraData: "0x" as `0x${string}`,
+  }], { account: deployer.account });
   await token.write.transfer([jackpot.address, JACKPOT_START], { account: deployer.account });
 
   await token.write.transfer([house.account.address, parseEther("100")], { account: deployer.account });
