@@ -18,7 +18,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl libc6-compat
 
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -30,5 +30,4 @@ COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY prisma ./prisma
 COPY src ./src
 
-CMD ["npm", "run", "start"]
-
+CMD ["sh", "-c", "npm run prisma:migrate && npm run start"]

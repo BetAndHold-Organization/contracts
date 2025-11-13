@@ -102,7 +102,129 @@ function TreasuryBalancesSection() {
     </div>
   );
 }
+function ReferralExplorer() {
+  const [selectedReferrer, setSelectedReferrer] = useState<string | null>(null);
+  const [usersCursor, setUsersCursor] = useState<string | undefined>(undefined);
+  const [limit, setLimit] = useState<number>(100);
 
+  const {
+    data: playersData,
+    isLoading: usersLoading,
+    isFetching: usersFetching,
+    error: usersError,
+  } = usePlayers(usersCursor);
+
+  const { data: contributions, isLoading: contribLoading } = useReferralContributions(
+    selectedReferrer ?? "",
+    limit,
+  );
+
+  const totalsByPlayer: Array<{ player: string; total: bigint }> = !contribLoading && contributions
+    ? Object.entries(
+        contributions.asReferrer.reduce((acc, e) => {
+          acc[e.player] = (acc[e.player] ?? 0n) + BigInt(e.amount);
+          return acc;
+        }, {} as Record<string, bigint>),
+      ).map(([player, total]) => ({ player, total }))
+    : [];
+
+  return (
+    <div className="players-layout">
+      <div className="players-list">
+        <div className="players-list-header">
+          <h3>All Users</h3>
+          {usersFetching && <span className="loading">Refreshing…</span>}
+        </div>
+
+        {usersLoading && <div>Loading users…</div>}
+        {usersError && <div className="error">Failed to load users.</div>}
+
+        {playersData && (
+          <>
+            <table>
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Bets</th>
+                  <th>Total Wager</th>
+                </tr>
+              </thead>
+              <tbody>
+                {playersData.nodes.map((p) => (
+                  <tr
+                    key={p.address}
+                    className={p.address === selectedReferrer ? "selected" : ""}
+                    onClick={() => setSelectedReferrer(p.address)}
+                  >
+                    <td>{p.address}</td>
+                    <td>{p.totalBets}</td>
+                    <td>{formatEVA(p.totalWager)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="pagination-controls">
+              <button onClick={() => setUsersCursor(undefined)} disabled={!usersCursor && !playersData.nextCursor}>
+                Reset
+              </button>
+              <button onClick={() => setUsersCursor(playersData.nextCursor ?? undefined)} disabled={!playersData.nextCursor}>
+                Next
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="player-detail">
+        {!selectedReferrer ? (
+          <div className="empty-state">Select a user to view their referred players and contributions.</div>
+        ) : (
+          <div>
+            <div className="player-detail-header">
+              <h3>Referred by {selectedReferrer}</h3>
+              <div className="form-grid" style={{ gap: 8 }}>
+                <label>
+                  <span>Rows</span>
+                  <input
+                    type="number"
+                    min={10}
+                    max={500}
+                    value={limit}
+                    onChange={(e) => setLimit(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {contribLoading ? (
+              <div>Loading contributions…</div>
+            ) : totalsByPlayer.length === 0 ? (
+              <div>No downline contributions found.</div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Referred Player</th>
+                    <th>Total Contributed to Referrer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {totalsByPlayer.map(({ player, total }) => (
+                    <tr key={player}>
+                      <td>{player}</td>
+                      <td>{formatEVA(total.toString())}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -131,6 +253,10 @@ export default function App() {
           <section className="players-section">
             <h2>Players</h2>
             <PlayersView />
+          </section>
+          <section>
+          <h2>Referrers</h2>
+            <ReferralExplorer />
           </section>
         </div>
       </main>

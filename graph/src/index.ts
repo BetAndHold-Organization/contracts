@@ -4,6 +4,7 @@ import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
 import { expressMiddleware } from "@apollo/server/express4";
+import { apiRouter } from "./api/router.js";
 
 import { env } from "./config.js";
 import { schema } from "./schema.js";
@@ -13,8 +14,9 @@ async function bootstrap() {
   await server.start();
 
   const app = express();
-  app.use(cors(), bodyParser.json(), expressMiddleware(server));
-
+  app.use(cors(), bodyParser.json());
+  app.use("/api", apiRouter);            // serve REST here
+  app.use("/graphql", expressMiddleware(server)); // serve GraphQL only on /graphql
   const httpServer = createServer(app);
 
   httpServer.listen({ port: env.PORT }, () => {

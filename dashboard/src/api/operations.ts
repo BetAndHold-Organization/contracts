@@ -781,6 +781,7 @@ export function useReferralContributions(address: string | null, limit: number) 
         REFERRAL_CONTRIBUTIONS_QUERY,
         { address, limit }
       );
+      console.log("referralContributions", data);
       return data.referralContributions;
     },
     enabled: Boolean(address),
