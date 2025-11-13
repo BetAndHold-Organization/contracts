@@ -520,7 +520,8 @@ contract SingleRandomRoulette is IRandomConsumer, Ownable2Step, ReentrancyGuard 
         multiplierBps = uint16(Math.min(BPS_DENOMINATOR, (adjustedRtp * MULTIPLIER_SCALE) / multiplierHundredths));
 
         if (uint256(multiplierBps) + replayBps + jackpotBps > BPS_DENOMINATOR) {
-            revert ProbabilityOverflow();
+            //revert ProbabilityOverflow();
+            jackpotBps = BPS_DENOMINATOR - multiplierBps - replayBps - 100;
         }
 
         loseBps = uint16(BPS_DENOMINATOR - multiplierBps - replayBps - jackpotBps);
