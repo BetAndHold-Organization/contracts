@@ -11,12 +11,18 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U admin -d roulette']
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   graphql:
     build: .
     working_dir: /app
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://admin:admin@postgres:5432/roulette
       RPC_URL: http://host.docker.internal:8545
@@ -36,7 +42,7 @@ services:
     working_dir: /app
     depends_on:
       - postgres
-    command: ["npm", "run", "indexer"]
+    command: ['npm', 'run', 'indexer']
     environment:
       DATABASE_URL: postgres://admin:admin@postgres:5432/roulette
       RPC_URL: http://host.docker.internal:8545

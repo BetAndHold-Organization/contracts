@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IRandomConsumer.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-
+import {JackpotScalingLib} from "./libraries/JackpotScalingLib.sol";
 interface IRandomProviderMinimal {
     function requestRandomNumber(uint256 maxNumber) external returns (uint256 requestId);
 }
@@ -63,20 +63,22 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
     }
 
     struct OutcomeConfig {
-        uint256 cumulativeProbability; // cumulative probability (bps) for this outcome
-        uint8 tierAdvance; // number of tiers to advance on success (typically 1)
-        uint8 tierResetTo; // new tier index if terminal (defaults to 0)
-        uint16 consolationMultiplier; // consolation multiplier in basis points (e.g., 15000 = 1.5x)
-        bool awardsTier; // whether this outcome awards a tier prize
+        JackpotScalingLib.ScalingConfig scaling; // probability slice (bps), can be constant or scaled
+        uint8 tierAdvance;                       // number of tiers to advance on success
+        uint8 tierResetTo;                       // new tier index if terminal (defaults to 0)
+        uint16 consolationMultiplier;            // in bps, e.g., 15000 = 1.5x
+        bool awardsTier;                         // whether this outcome awards a tier prize
     }
 
     // Each registered game defines its own outcome table. This allows
     // different games to plug into the same jackpot while keeping custom odds.
-    struct GameConfig {
-        bool enabled;
-        OutcomeConfig[] outcomes;
-        uint16 maxConsolationMultiplier;
-    }
+struct GameConfig {
+    bool enabled;
+    OutcomeConfig[] outcomes;
+    uint16 maxConsolationMultiplier;
+    uint8 fallbackIdx;     // index of pure-lose outcome for remainder
+    bool fallbackSet;      // whether fallbackIdx is set
+}
 
     struct DirectBetConfig {
         bool enabled;
@@ -91,6 +93,7 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
 
     // ---- Storage ----
 
+    uint8 private constant FIRST_TIER_OFFSET = 3; // outcomes[3] is tier 0, outcomes[4] is tier 1, ...
     IERC20 public immutable evaToken;
     IRandomProviderMinimal public randomProvider;
 
@@ -115,7 +118,8 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
     mapping(address => uint256[]) public playerEntries;
     
     uint256 public nextEntryId;
-    
+    uint8 private directFallbackIdx;   // for directOutcomes remainder
+    bool private directFallbackSet;
     // ---- Events ----
 
     event GameRegistered(address indexed game);
@@ -159,8 +163,24 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
         randomProvider = IRandomProviderMinimal(_randomProvider);
     }
 
-    // ---- Game management ----
+// ---- Game management ----
+    function setGameFallback(address game, uint8 idx) external onlyOwner {
+        if (!registeredGames[game]) revert InvalidGame(game);
+        GameConfig storage cfg = gameConfigs[game];
+        require(idx < cfg.outcomes.length, "idx oob");
+        OutcomeConfig storage oc = cfg.outcomes[idx];
+        require(!oc.awardsTier && oc.consolationMultiplier == 0, "Not pure lose");
+        cfg.fallbackIdx = idx;
+        cfg.fallbackSet = true;
+    }
 
+    function setDirectFallback(uint8 idx) external onlyOwner {
+        require(idx < directOutcomes.length, "idx oob");
+        OutcomeConfig storage oc = directOutcomes[idx];
+        require(!oc.awardsTier && oc.consolationMultiplier == 0, "Not pure lose");
+        directFallbackIdx = idx;
+        directFallbackSet = true;
+    }
     function registerGame(address game, OutcomeConfig[] calldata outcomes) external onlyOwner {
         if (game == address(0)) revert InvalidGame(game);
         _validateOutcomes(outcomes);
@@ -351,12 +371,13 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
 
         JackpotState storage state = jackpotState;
         uint8 tierIndex = state.nextTierIndex;
-        uint8 outcomeIndex = _resolveOutcome(cfg.outcomes, roll);
+        uint8 outcomeIndex = _resolveOutcome(cfg.outcomes, roll, tierIndex, cfg.fallbackIdx, cfg.fallbackSet);
         OutcomeConfig memory outcome = cfg.outcomes[outcomeIndex];
 
-        // Ensure jackpot can cover worst-case outcome (tier prize or consolation)
+        // Solvency: only require tier liability if the current tier's slice actually hit
         uint256 balance = _jackpotBalance();
-        if (outcome.awardsTier) {
+        bool awardThisTier = outcome.awardsTier && (outcomeIndex == FIRST_TIER_OFFSET + tierIndex);
+        if (awardThisTier) {
             uint256 prizeLiability = _tierPrizeLiability(tierIndex);
             require(balance >= prizeLiability, "Jackpot underfunded");
         } else if (outcome.consolationMultiplier > 0) {
@@ -364,9 +385,8 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
             require(balance >= consolationLiability, "Jackpot underfunded");
         }
 
-        payout = _handleOutcome(player, betAmount, tierIndex, outcome);
-
-        _updateProgression(state, tierIndex, outcome);
+        // Payout (progression occurs inside _handleOutcome only when award happens)
+        payout = _handleOutcome(player, betAmount, tierIndex, outcomeIndex, outcome);
 
         uint256 entryId = nextEntryId++;
         entryHistory[entryId] = EntryRecord({
@@ -418,15 +438,34 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
     
     // ---- Internal helpers ----
 
-    function _resolveOutcome(OutcomeConfig[] storage outcomes, uint256 roll) internal view returns (uint8) {
-        for (uint8 i = 0; i < outcomes.length; i++) {
-            if (roll < outcomes[i].cumulativeProbability) {
-                return i;
-            }
-        }
-        revert ProbabilityOverflow();
-    }
+    function _resolveOutcome(
+        OutcomeConfig[] storage outcomes,
+        uint256 roll,
+        uint8 currentTier,
+        uint8 fbIdx,
+        bool fbSet
+    ) internal view returns (uint8) {
+        uint256 metric = _jackpotBalance();
+        uint256 cumulative = 0;
+        uint8 currentAwardIdx = FIRST_TIER_OFFSET + currentTier;
 
+        for (uint8 i = 0; i < outcomes.length; i++) {
+            OutcomeConfig storage oc = outcomes[i];
+            if (!oc.scaling.enabled) continue;
+
+            // Only consider the current tier's award slice; ignore all other tier awards here.
+            if (oc.awardsTier && i != currentAwardIdx) continue;
+
+            uint16 p = JackpotScalingLib.computeProbability(oc.scaling, metric); // bps
+            if (p == 0) continue;
+
+            cumulative += p;
+            if (roll < cumulative) return i;
+        }
+
+        if (fbSet) return fbIdx;
+        revert InvalidProbabilityTable();
+    }
     function _awardTier(
         address player,
         uint8 tierIndex,
@@ -542,17 +581,16 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
         require(derivedValues.length > 0, "No value");
         uint256 roll = derivedValues[0];
 
-        uint8 outcomeIndex = _resolveOutcome(directOutcomes, roll);
+        uint8 outcomeIndex = _resolveOutcome(directOutcomes, roll, info.tierIndex, directFallbackIdx, directFallbackSet);
         OutcomeConfig memory outcome = directOutcomes[outcomeIndex];
 
-        uint256 payout = _handleOutcome(info.bettor, info.amount, info.tierIndex, outcome);
+        uint256 payout = _handleOutcome(info.bettor, info.amount, info.tierIndex, outcomeIndex, outcome);
         uint256 maxPayout = directBetMaxPayout[requestId];
         if (maxPayout == 0) {
             maxPayout = _computeMaxDirectBetPayout(info.amount, info.tierIndex);
         }
         require(payout <= maxPayout, "Payout exceeds max");
-
-        _updateProgression(jackpotState, info.tierIndex, outcome);
+        // Progression happens inside _handleOutcome only when award triggers
 
         uint256 entryId = nextEntryId++;
         entryHistory[entryId] = EntryRecord({
@@ -595,36 +633,38 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
         delete directBetMaxPayout[requestId];
     }
 
-    function _validateOutcomes(OutcomeConfig[] calldata outcomes) internal pure {
-        if (outcomes.length == 0) revert InvalidProbabilityTable();
-        uint256 lastProb = 0;
-        for (uint256 i = 0; i < outcomes.length; i++) {
-            if (outcomes[i].cumulativeProbability == 0 || outcomes[i].cumulativeProbability > PROBABILITY_PRECISION) {
-                revert InvalidProbabilityTable();
-            }
-            if (outcomes[i].cumulativeProbability <= lastProb) revert InvalidProbabilityTable();
-            lastProb = outcomes[i].cumulativeProbability;
-        }
-        if (lastProb != PROBABILITY_PRECISION) revert InvalidProbabilityTable();
+function _validateOutcomes(OutcomeConfig[] calldata outcomes) internal pure {
+    if (outcomes.length == 0) revert InvalidProbabilityTable();
+}
+
+function _handleOutcome(
+    address player,
+    uint256 betAmount,
+    uint8 tierIndex,
+    uint8 outcomeIndex,
+    OutcomeConfig memory outcome
+) internal returns (uint256 payout) {
+    JackpotState storage state = jackpotState;
+
+    bool isCurrentTierAward = outcome.awardsTier && (outcomeIndex == FIRST_TIER_OFFSET + tierIndex);
+
+    if (isCurrentTierAward) {
+        payout = _awardTier(player, tierIndex, outcome);
+        _updateProgression(state, tierIndex, outcome);
+        return payout;
     }
 
-    function _handleOutcome(
-        address player,
-        uint256 betAmount,
-        uint8 tierIndex,
-        OutcomeConfig memory outcome
-    ) internal returns (uint256 payout) {
-        JackpotState storage state = jackpotState;
-
-        if (outcome.awardsTier) {
-            payout = _awardTier(player, tierIndex, outcome);
-        } else if (outcome.consolationMultiplier > 0) {
-            payout = (betAmount * outcome.consolationMultiplier) / 10_000;
-            _transferPayout(player, payout);
-            state.totalConsolationPaid += payout;
-            emit ConsolationPaid(player, payout, outcome.consolationMultiplier);
-        }
+    if (outcome.consolationMultiplier > 0) {
+        payout = (betAmount * outcome.consolationMultiplier) / 10_000;
+        _transferPayout(player, payout);
+        state.totalConsolationPaid += payout;
+        emit ConsolationPaid(player, payout, outcome.consolationMultiplier);
+        return payout;
     }
+
+    // Pure lose or tier-slice that doesn't match current tier → no payout
+    return 0;
+}
 
     function _updateProgression(
         JackpotState storage state,

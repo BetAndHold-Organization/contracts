@@ -26,6 +26,7 @@ import {
   useReferralContributions,
   useStartSpin,
   useTableConfig,
+  findSeedConstrained,
 } from "./api/operations";
 import { getAddress } from "viem";
 import { MetricCard } from "./components/MetricCard";
@@ -102,7 +103,129 @@ function TreasuryBalancesSection() {
     </div>
   );
 }
+function ReferralExplorer() {
+  const [selectedReferrer, setSelectedReferrer] = useState<string | null>(null);
+  const [usersCursor, setUsersCursor] = useState<string | undefined>(undefined);
+  const [limit, setLimit] = useState<number>(100);
 
+  const {
+    data: playersData,
+    isLoading: usersLoading,
+    isFetching: usersFetching,
+    error: usersError,
+  } = usePlayers(usersCursor);
+
+  const { data: contributions, isLoading: contribLoading } = useReferralContributions(
+    selectedReferrer ?? "",
+    limit,
+  );
+
+  const totalsByPlayer: Array<{ player: string; total: bigint }> = !contribLoading && contributions
+    ? Object.entries(
+        contributions.asReferrer.reduce((acc, e) => {
+          acc[e.player] = (acc[e.player] ?? 0n) + BigInt(e.amount);
+          return acc;
+        }, {} as Record<string, bigint>),
+      ).map(([player, total]) => ({ player, total }))
+    : [];
+
+  return (
+    <div className="players-layout">
+      <div className="players-list">
+        <div className="players-list-header">
+          <h3>All Users</h3>
+          {usersFetching && <span className="loading">Refreshing…</span>}
+        </div>
+
+        {usersLoading && <div>Loading users…</div>}
+        {usersError && <div className="error">Failed to load users.</div>}
+
+        {playersData && (
+          <>
+            <table>
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Bets</th>
+                  <th>Total Wager</th>
+                </tr>
+              </thead>
+              <tbody>
+                {playersData.nodes.map((p) => (
+                  <tr
+                    key={p.address}
+                    className={p.address === selectedReferrer ? "selected" : ""}
+                    onClick={() => setSelectedReferrer(p.address)}
+                  >
+                    <td>{p.address}</td>
+                    <td>{p.totalBets}</td>
+                    <td>{formatEVA(p.totalWager)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="pagination-controls">
+              <button onClick={() => setUsersCursor(undefined)} disabled={!usersCursor && !playersData.nextCursor}>
+                Reset
+              </button>
+              <button onClick={() => setUsersCursor(playersData.nextCursor ?? undefined)} disabled={!playersData.nextCursor}>
+                Next
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="player-detail">
+        {!selectedReferrer ? (
+          <div className="empty-state">Select a user to view their referred players and contributions.</div>
+        ) : (
+          <div>
+            <div className="player-detail-header">
+              <h3>Referred by {selectedReferrer}</h3>
+              <div className="form-grid" style={{ gap: 8 }}>
+                <label>
+                  <span>Rows</span>
+                  <input
+                    type="number"
+                    min={10}
+                    max={500}
+                    value={limit}
+                    onChange={(e) => setLimit(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {contribLoading ? (
+              <div>Loading contributions…</div>
+            ) : totalsByPlayer.length === 0 ? (
+              <div>No downline contributions found.</div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Referred Player</th>
+                    <th>Total Contributed to Referrer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {totalsByPlayer.map(({ player, total }) => (
+                    <tr key={player}>
+                      <td>{player}</td>
+                      <td>{formatEVA(total.toString())}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -131,6 +254,10 @@ export default function App() {
           <section className="players-section">
             <h2>Players</h2>
             <PlayersView />
+          </section>
+          <section>
+          <h2>Referrers</h2>
+            <ReferralExplorer />
           </section>
         </div>
       </main>
@@ -428,26 +555,30 @@ function OperationsPanel() {
     }
   };
   async function selectJackpotSlice(target: { kind: "TIER" | "CONSOLATION" | "LOSE"; multiplierBps?: number }) {
-    const outcomes = await fetchJackpotOutcomes(); // returns cumulativeProbability, consolationMultiplier, awardsTier
+    const [outcomes, state] = await Promise.all([fetchJackpotOutcomes(), fetchJackpotState()]);
     if (!outcomes || outcomes.length === 0) throw new Error("No jackpot outcomes configured");
   
+    // Build slices
     let prev = 0;
     const slices = outcomes.map((o) => {
-      const end = o.cumulativeProbability;        // cumulative bps (0..10000)
       const start = prev;
+      const end = o.cumulativeProbability;
       prev = end;
       const kind = o.awardsTier ? "TIER" : o.consolationMultiplier > 0 ? "CONSOLATION" : "LOSE";
-      return {
-        start,                     // inclusive (bps)
-        end,                       // exclusive (bps)
-        kind,
-        consolationMultiplier: o.consolationMultiplier, // in bps (e.g., 1200, 1500)
-      };
+      return { start, end, kind, consolationMultiplier: o.consolationMultiplier };
     });
   
     if (target.kind === "CONSOLATION" && target.multiplierBps != null) {
       const s = slices.find((s) => s.kind === "CONSOLATION" && s.consolationMultiplier === target.multiplierBps);
       if (!s) throw new Error(`Consolation slice ${target.multiplierBps} bps not found`);
+      return s;
+    }
+  
+    if (target.kind === "TIER") {
+      const FIRST_TIER_OFFSET = 3;
+      const idx = FIRST_TIER_OFFSET + (state?.nextTierIndex ?? 0);
+      const s = slices[idx];
+      if (!s || s.kind !== "TIER") throw new Error(`Current tier slice not found at index ${idx}`);
       return s;
     }
   
@@ -466,20 +597,16 @@ function OperationsPanel() {
       const multiplierBps = pending.multiplierBps ?? 0n;
       const replayBps = BigInt(tableConfig.replayBps ?? 0);
       const jackpotBps = pending.jackpotBps ?? 0n;
-      const cap = await fetchJackpotCap();
+      const baseStart = multiplierBps + replayBps;
+      const baseEnd = baseStart + jackpotBps;
   
+      const cap = await fetchJackpotCap();
       const slice = await selectJackpotSlice({ kind: "TIER" });
   
-      const seed = findSeed(
-        (rolls) => {
-          const baseOk =
-            rolls[0] >= multiplierBps + replayBps &&
-            rolls[0] <  multiplierBps + replayBps + jackpotBps;
-          const jr = rolls[6];
-          const jpOk = jr < cap && jr >= BigInt(slice.start) && jr < BigInt(slice.end);
-          return baseOk && jpOk;
-        },
-        cap
+      const seed = findSeedConstrained(
+        baseStart, baseEnd, cap,
+        BigInt(slice.start), BigInt(slice.end),
+        { /* optional tuning: maxSteps: 50000, maxRemainders: 100 */ }
       );
   
       setRandomWord(seed.toString());
@@ -502,7 +629,7 @@ function OperationsPanel() {
       const jackpotBps = pending.jackpotBps ?? 0n;
       const cap = await fetchJackpotCap();
   
-      const slice = await selectJackpotSlice({ kind: "CONSOLATION", multiplierBps: 1200 });
+      const slice = await selectJackpotSlice({ kind: "CONSOLATION", multiplierBps: 12000 });
   
       const seed = findSeed(
         (rolls) => {
@@ -536,7 +663,7 @@ function OperationsPanel() {
       const jackpotBps = pending.jackpotBps ?? 0n;
       const cap = await fetchJackpotCap();
   
-      const slice = await selectJackpotSlice({ kind: "CONSOLATION", multiplierBps: 1500 });
+      const slice = await selectJackpotSlice({ kind: "CONSOLATION", multiplierBps: 15000 });
   
       const seed = findSeed(
         (rolls) => {

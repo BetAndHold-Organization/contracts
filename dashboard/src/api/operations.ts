@@ -51,8 +51,13 @@ const JACKPOT_ABI = parseAbi([
   "function getJackpotBalance() view returns (uint256)",
   "function getJackpotState() view returns (uint8 nextTierIndex,uint256 totalEntries,uint256 totalJackpotsWon,uint256 totalConsolationPaid,address lastWinner,uint256 lastWinTimestamp)",
   "function getTierLadder() view returns ((uint256 prizeMetric,bool isTerminal,bool isPercent,uint256 fixedBetCost,bool useDynamicCost)[])",
-  "function getGameOutcomes(address game) view returns ((uint256 cumulativeProbability,uint8 tierAdvance,uint8 tierResetTo,uint16 consolationMultiplier,bool awardsTier)[])",
-  "function getDirectBetOutcomes() view returns ((uint256 cumulativeProbability,uint8 tierAdvance,uint8 tierResetTo,uint16 consolationMultiplier,bool awardsTier)[])",
+
+  // OutcomeConfig[]:
+  // ((ScalingConfig,uint8 tierAdvance,uint8 tierResetTo,uint16 consolationMultiplier,bool awardsTier)[])
+  // ScalingConfig = (bool enabled,uint16 minJackpotBps,uint16 maxJackpotBps,uint256 minJackpotWager,uint256 maxJackpotWager,uint8 functionId,bytes extraData)
+  "function getGameOutcomes(address game) view returns (((bool enabled,uint16 minJackpotBps,uint16 maxJackpotBps,uint256 minJackpotWager,uint256 maxJackpotWager,uint8 functionId,bytes extraData),uint8,uint8,uint16,bool)[])",
+
+  "function getDirectBetOutcomes() view returns (((bool enabled,uint16 minJackpotBps,uint16 maxJackpotBps,uint256 minJackpotWager,uint256 maxJackpotWager,uint8 functionId,bytes extraData),uint8,uint8,uint16,bool)[])",
 ]);
 
 type TableConfig = {
@@ -235,7 +240,46 @@ function toAddress(value: unknown): Address {
   if (typeof value === "string") return getAddress(value);
   return zeroAddress;
 }
+export function findSeedConstrained(
+  baseStart: bigint,              // inclusive in [0, BPS)
+  baseEnd: bigint,                // exclusive
+  jackpotCap: bigint,             // PROBABILITY_PRECISION
+  jpStart: bigint,                // inclusive in [0, cap)
+  jpEnd: bigint,                  // exclusive
+  opts?: { maxSteps?: number; maxRemainders?: number; startRemainder?: bigint }
+): bigint {
+  if (!(0n <= baseStart && baseStart < baseEnd && baseEnd <= BPS)) {
+    throw new Error("Invalid base window");
+  }
+  if (!(0n <= jpStart && jpStart < jpEnd && jpEnd <= jackpotCap)) {
+    throw new Error("Invalid jackpot window");
+  }
 
+  const baseWidth = baseEnd - baseStart;          // <= 10000
+  const jpWidth = jpEnd - jpStart;                // <= 10000
+  const pJp = Number(jpWidth) / Number(jackpotCap || 1n);
+  const expectedTries = Math.max(1, Math.ceil(1 / (pJp || 1e-9)));
+
+  const maxSteps = opts?.maxSteps ?? Math.min(200000, 10 * expectedTries); // default ~10× expectation
+  const maxRemainders = opts?.maxRemainders ?? Math.min(Number(baseWidth), 200);
+  const startRemainder = opts?.startRemainder ?? (baseStart + (BigInt(Date.now() % Math.max(1, Number(baseWidth)))));
+
+  // Cycle over remainders in [baseStart, baseEnd)
+  for (let rIdx = 0; rIdx < maxRemainders; rIdx++) {
+    const r = baseStart + ((startRemainder - baseStart + BigInt(rIdx)) % baseWidth); // chosen remainder
+    // Now search seeds s = r + k*BPS
+    for (let k = 0; k < maxSteps; k++) {
+      const s = r + BigInt(k) * BPS;
+      const rolls = deriveRolls(s, jackpotCap);
+      // rolls[0] == r by construction; only check jackpot roll
+      const jr = rolls[6];
+      if (jr >= jpStart && jr < jpEnd) {
+        return s;
+      }
+    }
+  }
+  throw new Error("Seed not found (constrained)");
+}
 export async function fetchPendingSpin(requestId: bigint): Promise<PendingSpin> {
   const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
   const raw = await client.readContract({
@@ -287,6 +331,46 @@ export async function fetchPendingSpin(requestId: bigint): Promise<PendingSpin> 
     configIndex,
     exists,
   };
+}
+const ONE = 10n ** 18n;
+
+function intSqrt(n: bigint): bigint {
+  if (n <= 0n) return 0n;
+  let x = n;
+  let z = (n + 1n) / 2n;
+  while (z < x) { x = z; z = (n / z + z) / 2n; }
+  return x;
+}
+
+function applyCurve(functionId: number, normalized: bigint): bigint {
+  if (normalized <= 0n) return 0n;
+  if (normalized >= ONE) return ONE;
+  if (functionId === 0) return normalized;                            // Linear
+  if (functionId === 1) return (normalized * normalized) / ONE;       // Quadratic (convex)
+  if (functionId === 2) return intSqrt(normalized * ONE);             // Logarithmic (concave via sqrt)
+  if (functionId === 3) return (normalized * normalized / ONE) * normalized / ONE; // Exponential (cubic)
+  return normalized;
+}
+// Faster search: fix base roll modulo, then step by BPS to hit the jackpot sub-slice
+
+function computeProbBps(
+  scaling: { enabled: boolean; minJackpotBps: number; maxJackpotBps: number; minJackpotWager: bigint; maxJackpotWager: bigint; functionId: number; },
+  metric: bigint // jackpot balance (wei) on this chain
+): number {
+  if (!scaling.enabled) return 0;
+  if (scaling.maxJackpotBps === 0) return 0;
+  const min = scaling.minJackpotWager;
+  const max = scaling.maxJackpotWager;
+  if (metric < min) return 0;
+  if (max <= min) return 0;
+  if (metric >= max) return scaling.maxJackpotBps;
+
+  const span = max - min;
+  const pos = (metric - min) * ONE / span;
+  const scaled = applyCurve(scaling.functionId, pos);
+  const base = BigInt(scaling.minJackpotBps);
+  const delta = BigInt(scaling.maxJackpotBps - scaling.minJackpotBps);
+  return Number(base + (delta * scaled) / ONE);
 }
 
 export async function fetchTableConfigByIndex(index: number) {
@@ -644,32 +728,47 @@ export async function fetchJackpotTiers(): Promise<JackpotTier[] | null> {
 export async function fetchJackpotOutcomes(gameAddress?: Address): Promise<JackpotOutcome[] | null> {
   const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
   const jackpotAddress = deployment.jackpot;
-  if (!jackpotAddress || jackpotAddress === zeroAddress) {
-    return null;
-  }
+  if (!jackpotAddress || jackpotAddress === zeroAddress) return null;
 
   const game = gameAddress ?? getAddress(deployment.roulette);
 
   try {
-    const rawOutcomes = await client.readContract({
-      address: getAddress(jackpotAddress),
-      abi: JACKPOT_ABI,
-      functionName: "getGameOutcomes",
-      args: [game],
-    });
+    const [rawOutcomes, balance] = await Promise.all([
+      client.readContract({
+        address: getAddress(jackpotAddress),
+        abi: JACKPOT_ABI,
+        functionName: "getGameOutcomes",
+        args: [game],
+      }),
+      client.readContract({
+        address: getAddress(jackpotAddress),
+        abi: JACKPOT_ABI,
+        functionName: "getJackpotBalance",
+      }),
+    ]);
 
-    let previous = 0;
+    let cumulative = 0;
     return (rawOutcomes as any[]).map((entry: any) => {
-      const cumulative = Number(entry.cumulativeProbability ?? entry[0] ?? 0);
-      const probabilityBps = cumulative - previous;
-      previous = cumulative;
+      const sc = entry.scaling ?? entry[0];
+      const scaling = {
+        enabled: Boolean(sc.enabled ?? sc[0]),
+        minJackpotBps: Number(sc.minJackpotBps ?? sc[1] ?? 0),
+        maxJackpotBps: Number(sc.maxJackpotBps ?? sc[2] ?? 0),
+        minJackpotWager: BigInt(sc.minJackpotWager ?? sc[3] ?? 0),
+        maxJackpotWager: BigInt(sc.maxJackpotWager ?? sc[4] ?? 0),
+        functionId: Number(sc.functionId ?? sc[5] ?? 0),
+      };
+
+      const p = computeProbBps(scaling, balance as bigint);
+      cumulative += p;
+
       return {
         cumulativeProbability: cumulative,
         tierAdvance: Number(entry.tierAdvance ?? entry[1] ?? 0),
         tierResetTo: Number(entry.tierResetTo ?? entry[2] ?? 0),
         consolationMultiplier: Number(entry.consolationMultiplier ?? entry[3] ?? 0),
         awardsTier: Boolean(entry.awardsTier ?? entry[4] ?? false),
-        probabilityBps,
+        probabilityBps: p,
       } satisfies JackpotOutcome;
     });
   } catch (error) {
@@ -681,29 +780,44 @@ export async function fetchJackpotOutcomes(gameAddress?: Address): Promise<Jackp
 export async function fetchDirectBetOutcomes(): Promise<JackpotOutcome[] | null> {
   const [deployment, client] = await Promise.all([loadDeployment(NETWORK), Promise.resolve(getPublicClient())]);
   const jackpotAddress = deployment.jackpot;
-  if (!jackpotAddress || jackpotAddress === zeroAddress) {
-    return null;
-  }
+  if (!jackpotAddress || jackpotAddress === zeroAddress) return null;
 
   try {
-    const rawOutcomes = await client.readContract({
-      address: getAddress(jackpotAddress),
-      abi: JACKPOT_ABI,
-      functionName: "getDirectBetOutcomes",
-    });
+    const [rawOutcomes, balance] = await Promise.all([
+      client.readContract({
+        address: getAddress(jackpotAddress),
+        abi: JACKPOT_ABI,
+        functionName: "getDirectBetOutcomes",
+      }),
+      client.readContract({
+        address: getAddress(jackpotAddress),
+        abi: JACKPOT_ABI,
+        functionName: "getJackpotBalance",
+      }),
+    ]);
 
-    let previous = 0;
+    let cumulative = 0;
     const outcomes = (rawOutcomes as any[]).map((entry: any) => {
-      const cumulative = Number(entry.cumulativeProbability ?? entry[0] ?? 0);
-      const probabilityBps = cumulative - previous;
-      previous = cumulative;
+      const sc = entry.scaling ?? entry[0];
+      const scaling = {
+        enabled: Boolean(sc.enabled ?? sc[0]),
+        minJackpotBps: Number(sc.minJackpotBps ?? sc[1] ?? 0),
+        maxJackpotBps: Number(sc.maxJackpotBps ?? sc[2] ?? 0),
+        minJackpotWager: BigInt(sc.minJackpotWager ?? sc[3] ?? 0),
+        maxJackpotWager: BigInt(sc.maxJackpotWager ?? sc[4] ?? 0),
+        functionId: Number(sc.functionId ?? sc[5] ?? 0),
+      };
+
+      const p = computeProbBps(scaling, balance as bigint);
+      cumulative += p;
+
       return {
         cumulativeProbability: cumulative,
         tierAdvance: Number(entry.tierAdvance ?? entry[1] ?? 0),
         tierResetTo: Number(entry.tierResetTo ?? entry[2] ?? 0),
         consolationMultiplier: Number(entry.consolationMultiplier ?? entry[3] ?? 0),
         awardsTier: Boolean(entry.awardsTier ?? entry[4] ?? false),
-        probabilityBps,
+        probabilityBps: p,
       } satisfies JackpotOutcome;
     });
     console.log("fetchDirectBetOutcomes", {
@@ -717,7 +831,6 @@ export async function fetchDirectBetOutcomes(): Promise<JackpotOutcome[] | null>
     return null;
   }
 }
-
 export function useJackpotState() {
   return useQuery<JackpotState | null, Error>({
     queryKey: ["jackpot-state", NETWORK],
@@ -781,6 +894,7 @@ export function useReferralContributions(address: string | null, limit: number) 
         REFERRAL_CONTRIBUTIONS_QUERY,
         { address, limit }
       );
+      console.log("referralContributions", data);
       return data.referralContributions;
     },
     enabled: Boolean(address),
