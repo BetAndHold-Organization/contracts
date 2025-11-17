@@ -93,6 +93,7 @@ struct GameConfig {
 
     // ---- Storage ----
 
+    uint8 private constant FIRST_TIER_OFFSET = 3; // outcomes[3] is tier 0, outcomes[4] is tier 1, ...
     IERC20 public immutable evaToken;
     IRandomProviderMinimal public randomProvider;
 
@@ -370,12 +371,13 @@ struct GameConfig {
 
         JackpotState storage state = jackpotState;
         uint8 tierIndex = state.nextTierIndex;
-        uint8 outcomeIndex = _resolveOutcome(cfg.outcomes, roll, cfg.fallbackIdx, cfg.fallbackSet);
+        uint8 outcomeIndex = _resolveOutcome(cfg.outcomes, roll, tierIndex, cfg.fallbackIdx, cfg.fallbackSet);
         OutcomeConfig memory outcome = cfg.outcomes[outcomeIndex];
 
-        // Ensure jackpot can cover worst-case outcome (tier prize or consolation)
+        // Solvency: only require tier liability if the current tier's slice actually hit
         uint256 balance = _jackpotBalance();
-        if (outcome.awardsTier) {
+        bool awardThisTier = outcome.awardsTier && (outcomeIndex == FIRST_TIER_OFFSET + tierIndex);
+        if (awardThisTier) {
             uint256 prizeLiability = _tierPrizeLiability(tierIndex);
             require(balance >= prizeLiability, "Jackpot underfunded");
         } else if (outcome.consolationMultiplier > 0) {
@@ -383,9 +385,8 @@ struct GameConfig {
             require(balance >= consolationLiability, "Jackpot underfunded");
         }
 
-        payout = _handleOutcome(player, betAmount, tierIndex, outcome);
-
-        _updateProgression(state, tierIndex, outcome);
+        // Payout (progression occurs inside _handleOutcome only when award happens)
+        payout = _handleOutcome(player, betAmount, tierIndex, outcomeIndex, outcome);
 
         uint256 entryId = nextEntryId++;
         entryHistory[entryId] = EntryRecord({
@@ -440,25 +441,31 @@ struct GameConfig {
     function _resolveOutcome(
         OutcomeConfig[] storage outcomes,
         uint256 roll,
+        uint8 currentTier,
         uint8 fbIdx,
         bool fbSet
     ) internal view returns (uint8) {
         uint256 metric = _jackpotBalance();
         uint256 cumulative = 0;
+        uint8 currentAwardIdx = FIRST_TIER_OFFSET + currentTier;
 
         for (uint8 i = 0; i < outcomes.length; i++) {
             OutcomeConfig storage oc = outcomes[i];
             if (!oc.scaling.enabled) continue;
+
+            // Only consider the current tier's award slice; ignore all other tier awards here.
+            if (oc.awardsTier && i != currentAwardIdx) continue;
+
             uint16 p = JackpotScalingLib.computeProbability(oc.scaling, metric); // bps
             if (p == 0) continue;
+
             cumulative += p;
             if (roll < cumulative) return i;
         }
 
         if (fbSet) return fbIdx;
-        revert InvalidProbabilityTable(); // no slice hit and no fallback configured
+        revert InvalidProbabilityTable();
     }
-
     function _awardTier(
         address player,
         uint8 tierIndex,
@@ -574,17 +581,16 @@ struct GameConfig {
         require(derivedValues.length > 0, "No value");
         uint256 roll = derivedValues[0];
 
-        uint8 outcomeIndex = _resolveOutcome(directOutcomes, roll, directFallbackIdx, directFallbackSet);
+        uint8 outcomeIndex = _resolveOutcome(directOutcomes, roll, info.tierIndex, directFallbackIdx, directFallbackSet);
         OutcomeConfig memory outcome = directOutcomes[outcomeIndex];
 
-        uint256 payout = _handleOutcome(info.bettor, info.amount, info.tierIndex, outcome);
+        uint256 payout = _handleOutcome(info.bettor, info.amount, info.tierIndex, outcomeIndex, outcome);
         uint256 maxPayout = directBetMaxPayout[requestId];
         if (maxPayout == 0) {
             maxPayout = _computeMaxDirectBetPayout(info.amount, info.tierIndex);
         }
         require(payout <= maxPayout, "Payout exceeds max");
-
-        _updateProgression(jackpotState, info.tierIndex, outcome);
+        // Progression happens inside _handleOutcome only when award triggers
 
         uint256 entryId = nextEntryId++;
         entryHistory[entryId] = EntryRecord({
@@ -631,23 +637,34 @@ function _validateOutcomes(OutcomeConfig[] calldata outcomes) internal pure {
     if (outcomes.length == 0) revert InvalidProbabilityTable();
 }
 
-    function _handleOutcome(
-        address player,
-        uint256 betAmount,
-        uint8 tierIndex,
-        OutcomeConfig memory outcome
-    ) internal returns (uint256 payout) {
-        JackpotState storage state = jackpotState;
+function _handleOutcome(
+    address player,
+    uint256 betAmount,
+    uint8 tierIndex,
+    uint8 outcomeIndex,
+    OutcomeConfig memory outcome
+) internal returns (uint256 payout) {
+    JackpotState storage state = jackpotState;
 
-        if (outcome.awardsTier) {
-            payout = _awardTier(player, tierIndex, outcome);
-        } else if (outcome.consolationMultiplier > 0) {
-            payout = (betAmount * outcome.consolationMultiplier) / 10_000;
-            _transferPayout(player, payout);
-            state.totalConsolationPaid += payout;
-            emit ConsolationPaid(player, payout, outcome.consolationMultiplier);
-        }
+    bool isCurrentTierAward = outcome.awardsTier && (outcomeIndex == FIRST_TIER_OFFSET + tierIndex);
+
+    if (isCurrentTierAward) {
+        payout = _awardTier(player, tierIndex, outcome);
+        _updateProgression(state, tierIndex, outcome);
+        return payout;
     }
+
+    if (outcome.consolationMultiplier > 0) {
+        payout = (betAmount * outcome.consolationMultiplier) / 10_000;
+        _transferPayout(player, payout);
+        state.totalConsolationPaid += payout;
+        emit ConsolationPaid(player, payout, outcome.consolationMultiplier);
+        return payout;
+    }
+
+    // Pure lose or tier-slice that doesn't match current tier → no payout
+    return 0;
+}
 
     function _updateProgression(
         JackpotState storage state,

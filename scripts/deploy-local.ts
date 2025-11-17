@@ -9,29 +9,33 @@ const REFERRAL_BPS = 200;
 
 export const DEFAULT_TABLE_CONFIG = {
   enabled: true,
-  replayBps: 1_000,
-  jackpotBps: 200,
-  jackpotContributionBps: 200,
-  minMultiplier: 101,
-  maxMultiplier: 10_000,
-  minWager: parseEther("1"),
+  replayBps: 1_000,            // 10% per roll
+  jackpotBps: 0,               // use scaling below
+  jackpotContributionBps: 350, // 3.5% of net stake to jackpot
+  minMultiplier: 101,          // 1.01x
+  maxMultiplier: 10_000,       // 100x
+  minWager: parseEther("0.01"),
   maxWager: parseEther("100"),
 };
 
 const KEY_HASH = keccak256("0x01");
 const SUBSCRIPTION_ID = 1n;
-const JACKPOT_START = parseEther("30");
+const JACKPOT_START = parseEther("300");
 const CONSUMER_RANGE_LIMIT = 7n;
 
 // New scaled/static probability configuration in bps
 const TIER_COUNT = 9;
-const LOSE_BASE_BPS = 1_000; // 10%
-const CONSOLATION_12_BPS = 1_500; // 15%
-const CONSOLATION_15_BPS = 1_000; // 10%
+// Explicit lose slice (fallback remainder is also lose). Keep small to preserve headroom.
+const LOSE_BASE_BPS = 300; // 3%
+// Consolations: exactly two, as required: 1.2x and 1.5x. Probabilities are conservative to protect solvency.
+const CONSOLATION_12_PROB_BPS = 500; // 5%
+const CONSOLATION_15_PROB_BPS = 200; // 2%
 
 function buildTierLadder() {
+  const TIER_COUNT = 9;
+  const P = [1000n, 1000n, 1000n, 1000n, 2000n, 2000n, 2000n, 2000n, 8000n];
   return Array.from({ length: TIER_COUNT }, (_, index) => ({
-    prizeMetric: index === TIER_COUNT - 1 ? 9_000n : 2_000n,
+    prizeMetric: P[index],
     isTerminal: index === TIER_COUNT - 1,
     isPercent: true,
     fixedBetCost: 0n,
@@ -89,70 +93,81 @@ function scalingRange(minBps: number, maxBps: number, minBal: string, maxBal: st
 function buildScaledOutcomes(): OutcomeConfig[] {
   const outcomes: OutcomeConfig[] = [];
 
-  // 0: Lose base 10%
+  // 0) explicit lose
   outcomes.push({
     scaling: scalingConst(LOSE_BASE_BPS),
-    tierAdvance: 0,
-    tierResetTo: 0,
-    consolationMultiplier: 0,
-    awardsTier: false,
+    tierAdvance: 0, tierResetTo: 0, consolationMultiplier: 0, awardsTier: false,
   });
 
-  // 1: Consolation 1.2x at 15%
+  // 1) 1.2x consolation
   outcomes.push({
-    scaling: scalingConst(CONSOLATION_12_BPS),
-    tierAdvance: 0,
-    tierResetTo: 0,
-    consolationMultiplier: 1_200,
-    awardsTier: false,
+    scaling: scalingConst(CONSOLATION_12_PROB_BPS),
+    tierAdvance: 0, tierResetTo: 0, consolationMultiplier: 12_000, awardsTier: false,
   });
 
-  // 2: Consolation 1.5x at 10%
+  // 2) 1.5x consolation
   outcomes.push({
-    scaling: scalingConst(CONSOLATION_15_BPS),
-    tierAdvance: 0,
-    tierResetTo: 0,
-    consolationMultiplier: 1_500,
-    awardsTier: false,
+    scaling: scalingConst(CONSOLATION_15_PROB_BPS),
+    tierAdvance: 0, tierResetTo: 0, consolationMultiplier: 15_000, awardsTier: false,
   });
 
-  // 3..11: Tiers 1..9 per spec
-  outcomes.push({
-    scaling: scalingRange(100, 7_000, "15", "1000", SCALING_LINEAR),
-    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
-  });
-  outcomes.push({
-    scaling: scalingRange(100, 7_000, "20", "1000", SCALING_LINEAR),
-    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
-  });
-  outcomes.push({
-    scaling: scalingRange(100, 7_000, "25", "1000", SCALING_LINEAR),
-    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
-  });
-  outcomes.push({
-    scaling: scalingRange(100, 6_500, "50", "1000", SCALING_LINEAR),
-    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
-  });
-  outcomes.push({
-    scaling: scalingRange(100, 6_500, "60", "1000", SCALING_LINEAR),
-    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
-  });
-  outcomes.push({
-    scaling: scalingRange(100, 7_000, "70", "1000", SCALING_LINEAR),
-    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
-  });
-  outcomes.push({
-    scaling: scalingRange(100, 7_000, "100", "1500", SCALING_LINEAR),
-    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
-  });
-  outcomes.push({
-    scaling: scalingRange(50, 5_000, "100", "2500", SCALING_QUADRATIC),
-    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
-  });
-  outcomes.push({
-    scaling: scalingRange(50, 7_000, "100", "10000", SCALING_LOG),
-    tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
-  });
+  // 3–11) 9 tier-award outcomes (probability rises with jackpot balance)
+  // 3–6) Tier-award outcomes (Quadratic scaling on jackpot balance J)
+  // Max 90% to force payout at very high J, “room” beyond 250.
+
+  //Jackpot consolidation phase with a quadratic scaling function
+    outcomes.push({ // 3 - Tier 0
+      scaling: scalingRange(200, 9000, "100", "600", SCALING_QUADRATIC), // ~10% at J=250
+      tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+    });
+    outcomes.push({ // 4 - Tier 1
+      scaling: scalingRange(200, 9000, "120", "620", SCALING_QUADRATIC), // ~8% at J=250
+      tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+    });
+    outcomes.push({ // 5 - Tier 2
+      scaling: scalingRange(200, 9000, "140", "640", SCALING_QUADRATIC), // ~6% at J=250
+      tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+    });
+    outcomes.push({ // 6 - Tier 3
+      scaling: scalingRange(200, 9000, "160", "660", SCALING_QUADRATIC), // ~5% at J=250
+      tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+    });
+
+
+  //Jackpot stabilization phase at 400 EVA
+    // 7) Tier 4 - linear, medium ~400 EVA
+    outcomes.push({
+      scaling: scalingRange(1000, 6000, "300", "500", SCALING_LINEAR), // 10% @300 → 60% @500; ~35% @400
+      tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+    });
+
+    // 8) Tier 5 - linear, slightly higher window
+    outcomes.push({
+      scaling: scalingRange(800, 6000, "350", "600", SCALING_LINEAR),  // 8% @350 → 60% @600; ~18% @400
+      tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+    });
+
+    // 9) Tier 6 - linear, starts near 400 EVA
+    outcomes.push({
+      scaling: scalingRange(600, 6000, "400", "700", SCALING_LINEAR),  // 6% @400 → 60% @700; 6% @400
+      tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+    });
+
+
+    //Final stages jackpot.
+      // 10) Tier 7 (20% of J) – slow progression around 600 EVA
+      outcomes.push({
+        // ~5% at J=600; 2% floor; cap 30%; window 450→900, convex (slow early growth)
+        scaling: scalingRange(200, 3000, "450", "900", SCALING_QUADRATIC),
+        tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+      });
+
+      // 11) Tier 8 (terminal, 80% of J) – very slow progression, force payout only at very high J
+      outcomes.push({
+        // ~1% at J=600; 0.5% floor; cap 20%; window 500→1200, convex
+        scaling: scalingRange(50, 2000, "750", "1400", SCALING_QUADRATIC),
+        tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
+      });
 
   return outcomes;
 }
@@ -239,11 +254,11 @@ async function main() {
   await roulette.write.setTableConfig([DEFAULT_TABLE_CONFIG], { account: deployer.account });
   await roulette.write.setJackpotScalingConfig([{
     enabled: true,
-    minJackpotBps: 100,                   // 1.00% at low wager
-    maxJackpotBps: 2500,                  // 25.00% at high wager
-    minJackpotWager: parseEther("0.1"),
-    maxJackpotWager: parseEther("140"),
-    functionId: SCALING_LINEAR,           // 0
+    minJackpotBps: 500,                         // 2.00% per roll at 0.01 EVA
+    maxJackpotBps: 2000,                         // 5.00% per roll at 100 EVA
+    minJackpotWager: parseEther("0.01"),
+    maxJackpotWager: parseEther("100"),
+    functionId: SCALING_LOG,                    // concave growth for more entries at low wagers
     extraData: "0x" as `0x${string}`,
   }], { account: deployer.account });
   await token.write.transfer([jackpot.address, JACKPOT_START], { account: deployer.account });
