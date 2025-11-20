@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.20;
 
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
@@ -9,6 +9,7 @@ import "hardhat/console.sol";
 
 interface IMultiLevelReferral {
     function recordReferral(address player, address potentialReferrer, uint256 referralAmount) external;
+    function getReferrer(address player) external view returns (address);
 }
 
 contract PaymentHandler is Ownable2Step, ReentrancyGuard {
@@ -41,6 +42,18 @@ contract PaymentHandler is Ownable2Step, ReentrancyGuard {
         address indexed game,
         address payoutTarget,
         address feeRecipient,
+        uint16 houseEdgeBps,
+        uint16 referralBps
+    );
+
+    event GameBetProcessed(
+        address indexed game,
+        address indexed bettor,
+        address indexed assignedReferrer,
+        uint256 baseCost,
+        uint256 houseFee,
+        uint256 referralFee,
+        uint256 netAmount,
         uint16 houseEdgeBps,
         uint16 referralBps
     );
@@ -155,15 +168,26 @@ contract PaymentHandler is Ownable2Step, ReentrancyGuard {
         if (houseFee > 0) {
             evaToken.safeTransfer(cfg.feeRecipient, houseFee);
         }
-
+        address referral = referralContract;
         if (referralFee > 0) {
-            address referral = referralContract;
             require(referral != address(0), "Referral contract not set");
             evaToken.safeTransfer(referral, referralFee);
             IMultiLevelReferral(referral).recordReferral(bettor, potentialReferrer, referralFee);
         }
 
         evaToken.safeTransfer(cfg.payoutTarget, netAmount);
+        address assignedReferrer = IMultiLevelReferral(referral).getReferrer(bettor);
+        emit GameBetProcessed(
+            msg.sender,
+            bettor,
+            assignedReferrer,
+            baseCost,
+            houseFee,
+            referralFee,
+            netAmount,
+            cfg.houseEdgeBps,
+            cfg.referralBps
+        );
     }
 }
 

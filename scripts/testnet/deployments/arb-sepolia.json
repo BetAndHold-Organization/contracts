@@ -1,0 +1,11 @@
+{
+  "token": "0xf3073db5731cb0174562ee6f241976d4f0fde3e5",
+  "randomProvider": "0xb0702476e48dc05a0ac2ce9b4ae83e968e293781",
+  "handler": "0x5e0e14165e261a5184802cff08ef2eb2ef495294",
+  "referral": "0x581f83ca1a89f4daae68ab39bf3e432b24850c36",
+  "jackpot": "0x6bb0ef118555f0c299dafdb36ede3d482c4b19f3",
+  "roulette": "0x567d0536e009e7dab1e7d99353f6016f88a52688",
+  "house": "0x305ed0b238f108e671a769436f7ac9b13ee66942",
+  "fallback": "0x305ed0b238f108e671a769436f7ac9b13ee66942",
+  "samplePlayer": "0x305ed0b238f108e671a769436f7ac9b13ee66942"
+}

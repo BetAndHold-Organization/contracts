@@ -56,3 +56,43 @@ referralsRouter.get("/contributions", async (req, res) => {
     res.status(400).json({ error: e.message ?? "Bad request" });
   }
 });
+
+referralsRouter.get("/dashboard", async (req, res) => {
+    try {
+      const address = z.string().min(1).parse(req.query.address);
+      const limit = z.coerce.number().int().min(1).max(5000).default(1000).parse(req.query.limit);
+      const normalized = address.toLowerCase();
+  
+      const [reward, rows] = await Promise.all([
+        db.referralReward.findUnique({ where: { address: normalized } }),
+        db.referralContribution.findMany({
+          where: { referrer: normalized },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          select: { player: true, amount: true },
+        }),
+      ]);
+  
+      const pending = reward?.pending?.toFixed?.(0) ?? "0";
+      const claimed = reward?.claimed?.toFixed?.(0) ?? "0";
+      const totalsByPayer = Object.entries(
+        rows.reduce<Record<string, bigint>>((acc, r: any) => {
+          const p = String(r.player).toLowerCase();
+          acc[p] = (acc[p] ?? 0n) + BigInt(r.amount.toString());
+          return acc;
+        }, {})
+      ).map(([player, total]) => ({ player, total: total.toString() }));
+  
+      res.json({
+        address: normalized,
+        totals: {
+          totalGenerated: (BigInt(pending) + BigInt(claimed)).toString(),
+          pending,
+          claimed,
+        },
+        totalsByPayer,
+      });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message ?? "Bad request" });
+    }
+  });

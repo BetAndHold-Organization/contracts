@@ -295,29 +295,34 @@ export class ReferralService {
         const refLower = entry.referrer.toLowerCase();
         const amountStr = entry.amount.toString();
 
-        await prisma.referralContribution.upsert({
-          where: {
-            requestId_level: {
-              requestId,
-              level: entry.level,
-            },
-          },
-          update: {
-            referrer: refLower,
-            amount: amountStr,
-            txHash,
-            blockNumber,
-          },
-          create: {
-            player: payload.player.toLowerCase(),
-            referrer: refLower,
-            level: entry.level,
-            amount: amountStr,
-            requestId,
-            txHash,
-            blockNumber,
-          },
+        const existing = await prisma.referralContribution.findFirst({
+          where: { requestId, level: entry.level },
+          select: { id: true },
         });
+
+        if (existing) {
+          await prisma.referralContribution.update({
+            where: { id: existing.id },
+            data: {
+              referrer: refLower,
+              amount: amountStr,
+              txHash,
+              blockNumber,
+            },
+          });
+        } else {
+          await prisma.referralContribution.create({
+            data: {
+              player: payload.player.toLowerCase(),
+              referrer: refLower,
+              level: entry.level,
+              amount: amountStr,
+              requestId,
+              txHash,
+              blockNumber,
+            },
+          });
+        }
 
         await prisma.referralReward.upsert({
           where: { address: refLower },

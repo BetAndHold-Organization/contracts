@@ -25,6 +25,8 @@ model Bet {
   completedAt          DateTime?
   outcome              BetOutcome?
   jackpotEvents        JackpotEvent[]
+  @@index([player])
+  @@index([referrer])
 }
 
 model BetOutcome {
@@ -59,6 +61,30 @@ model ReferralReward {
   updatedAt DateTime @default(now())
 }
 
+model PaymentEvent {
+  id               String   @id @default(uuid())
+  txHash           String   @unique
+  blockNumber      BigInt
+  game             String   // game address
+  bettor           String
+  assignedReferrer String?
+  baseCost         Decimal  @db.Decimal(78, 0)
+  houseFee         Decimal  @db.Decimal(78, 0)
+  referralFee      Decimal  @db.Decimal(78, 0)
+  netAmount        Decimal  @db.Decimal(78, 0)
+  houseEdgeBps     Int
+  referralBps      Int
+  // optional: set by indexer if you correlate with game logs
+  source           String?
+  requestId        BigInt?
+  createdAt        DateTime @default(now())
+
+  contributions    ReferralContribution[]
+
+  @@index([game])
+  @@index([bettor])
+}
+
 model ReferralEdge {
   player     String   @id
   referrer   String?
@@ -66,17 +92,20 @@ model ReferralEdge {
 }
 
 model ReferralContribution {
-  id         String   @id @default(uuid())
-  player     String
-  referrer   String?
-  level      Int
-  amount     Decimal   @db.Decimal(78, 0)
-  requestId  BigInt
-  txHash     String
-  blockNumber BigInt
-  createdAt  DateTime @default(now())
+  id           String   @id @default(uuid())
+  paymentId    String?
+  payment      PaymentEvent? @relation(fields: [paymentId], references: [id])
+  player       String
+  referrer     String?
+  level        Int
+  amount       Decimal  @db.Decimal(78, 0)
+  requestId    BigInt?
+  txHash       String
+  blockNumber  BigInt
+  createdAt    DateTime @default(now())
 
-  @@unique([requestId, level])
+  @@unique([paymentId, level])
+  @@index([requestId])
   @@index([player])
   @@index([referrer])
 }

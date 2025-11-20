@@ -329,3 +329,57 @@ function deriveJackpotOutcome(
 
   return { jackpotResult: "LOSE", jackpotConsolationMultiplier: 0 };
 }
+export function normalizePayment(p: any) {
+  return {
+    ...p,
+    blockNumber: Number(p.blockNumber),
+    baseCost: decimalToString(p.baseCost),
+    houseFee: decimalToString(p.houseFee),
+    referralFee: decimalToString(p.referralFee),
+    netAmount: decimalToString(p.netAmount),
+  };
+}
+export async function fetchBetsByGame(
+  db: PrismaClient,
+  args: { game: string; cursor?: string; limit?: number }
+) {
+  const take = Math.min(Math.max(args.limit ?? 50, 1), 200);
+  const game = args.game.toLowerCase();
+
+  const payments = await db.paymentEvent.findMany({
+    where: { game },
+    orderBy: { createdAt: "desc" },
+    take,
+    skip: args.cursor ? 1 : 0,
+    cursor: args.cursor ? { id: args.cursor } : undefined,
+  });
+
+  const totalCount = await db.paymentEvent.count({ where: { game } });
+  const nextCursor = payments.length === take ? payments[payments.length - 1].id : null;
+
+  const txHashes = payments.map((p) => p.txHash);
+  const bets = await db.bet.findMany({
+    where: { txHash: { in: txHashes } },
+    include: { outcome: true, jackpotEvents: true },
+  });
+
+  const betByTx = new Map(bets.map((b) => [b.txHash, b]));
+
+  const nodes = payments.map((p) => {
+    const payment = normalizePayment(p);
+    const bet = betByTx.get(p.txHash);
+    if (!bet) {
+      return { payment, bet: null };
+    }
+    const normalized = normalizeBet(bet as any);
+    const { jackpotResult, jackpotConsolationMultiplier } = deriveJackpotOutcome(bet.jackpotEvents as any);
+    return {
+      payment,
+      bet: bet.outcome
+        ? { ...normalized, outcome: { ...normalized.outcome, jackpotResult, jackpotConsolationMultiplier } }
+        : normalized,
+    };
+  });
+
+  return { nodes, totalCount, nextCursor };
+}
