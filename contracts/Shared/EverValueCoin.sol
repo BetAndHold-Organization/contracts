@@ -8,9 +8,9 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 /// @dev This contract manages the minting and burning of EVA tokens. The total supply is capped at 21,000,000 tokens.
 contract EverValueCoin is ERC20 {
     /// @notice The name of the token to be created upon deployment
-    string private constant nameForDeploy = "EverValueCoin";
+    string private constant nameForDeploy = "TestRouletteToken";
     /// @notice The symbol of the token to be created upon deployment
-    string private constant symbolForDeploy = "EVA";
+    string private constant symbolForDeploy = "TRT";
     /// @notice The maximum number of EVA tokens that can ever exist
     uint256 public constant MAX_SUPPLY = 21_000_000 * 10 ** 18;
 

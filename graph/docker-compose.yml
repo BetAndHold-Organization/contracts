@@ -25,14 +25,14 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://admin:admin@postgres:5432/roulette
-      RPC_URL: http://host.docker.internal:8545
-      RPC_WS_URL: ws://host.docker.internal:8545
-      DEPLOYMENTS_PATH: /app/scripts/deployments/local.json
+      RPC_URL: https://arbitrum-sepolia.infura.io/v3/3d3aca3f945f4ebe8b06d5a1acc2d25e
+      RPC_WS_URL: wss://arbitrum-sepolia.infura.io/ws/v3/3d3aca3f945f4ebe8b06d5a1acc2d25e
+      DEPLOYMENTS_PATH: /app/scripts/testnet/deployments/arb-sepolia.json
       HARDFORK_MNEMONIC: "test test test test test test test test test test test junk"
       ADMIN_API_KEY: changeme
       PORT: 4000
     volumes:
-      - ../scripts/deployments:/app/scripts/deployments:ro
+      - ../scripts/testnet/deployments:/app/scripts/testnet/deployments:ro
       - ../artifacts:/app/artifacts:ro
     ports:
       - "4000:4000"
@@ -45,13 +45,14 @@ services:
     command: ['npm', 'run', 'indexer']
     environment:
       DATABASE_URL: postgres://admin:admin@postgres:5432/roulette
-      RPC_URL: http://host.docker.internal:8545
-      RPC_WS_URL: ws://host.docker.internal:8545
-      DEPLOYMENTS_PATH: /app/scripts/deployments/local.json
+      RPC_URL: https://arbitrum-sepolia.infura.io/v3/3d3aca3f945f4ebe8b06d5a1acc2d25e
+      RPC_WS_URL: wss://arbitrum-sepolia.infura.io/ws/v3/3d3aca3f945f4ebe8b06d5a1acc2d25e
+      DEPLOYMENTS_PATH: /app/scripts/testnet/deployments/arb-sepolia.json
+      START_BLOCK: "217274628"
       HARDFORK_MNEMONIC: "test test test test test test test test test test test junk"
       ADMIN_API_KEY: changeme
     volumes:
-      - ../scripts/deployments:/app/scripts/deployments:ro
+      - ../scripts/testnet/deployments:/app/scripts/testnet/deployments:ro
       - ../artifacts:/app/artifacts:ro
 
 volumes:

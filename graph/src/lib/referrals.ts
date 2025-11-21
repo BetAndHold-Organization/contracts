@@ -296,7 +296,7 @@ export class ReferralService {
         const amountStr = entry.amount.toString();
 
         const existing = await prisma.referralContribution.findFirst({
-          where: { requestId, level: entry.level },
+          where: { requestId: requestId.toString(), level: entry.level },
           select: { id: true },
         });
 
@@ -317,7 +317,7 @@ export class ReferralService {
               referrer: refLower,
               level: entry.level,
               amount: amountStr,
-              requestId,
+              requestId: requestId.toString(),
               txHash,
               blockNumber,
             },

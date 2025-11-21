@@ -2,6 +2,8 @@ import { network } from "hardhat";
 import { promises as fs } from "node:fs";
 import { parseEther } from "viem";
 import "dotenv/config";
+import hre from "hardhat";
+import { spawn } from "node:child_process";
 // Reuse your existing outcome/ladder builders (kept minimal here)
 const REFERRAL_LADDER = [7_000, 1_200, 900, 600, 300] as const;
 const HOUSE_EDGE_BPS = 500;
@@ -17,7 +19,30 @@ const DEFAULT_TABLE_CONFIG = {
   minWager: parseEther("0.01"),
   maxWager: parseEther("100"),
 };
-
+function runVerifyCli(networkName: string, address: `0x${string}`, args: any[] = []) {
+    return new Promise<void>((resolve, reject) => {
+      const argv = ["hardhat", "verify", "--network", networkName, address, ...args.map(String)];
+      const p = spawn(process.platform === "win32" ? "npx.cmd" : "npx", argv, { stdio: "inherit" });
+      p.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`verify exit ${code}`)));
+      p.on("error", reject);
+    });
+  }
+  
+  async function verifyWithRetryCli(networkName: string, address: `0x${string}`, args: any[] = []) {
+    // wait once for explorer indexing before first verify, or keep here if you prefer per-contract waits
+    for (let i = 0; i < 3; i++) {
+      try {
+        await runVerifyCli(networkName, address, args);
+        console.log("✓ Verified", address);
+        return;
+      } catch (e: any) {
+        const msg = String(e?.message ?? e);
+        if (msg.includes("Already Verified")) { console.log("✓ Already verified", address); return; }
+        if (i < 2) { console.warn("↻ verify retry in 15s:", address, msg); await new Promise(r => setTimeout(r, 15_000)); }
+        else { console.warn("⚠ verify failed:", address, e); }
+      }
+    }
+  }
 const CONSUMER_RANGE_LIMIT = 7n; // 6 base rolls + 1 jackpot
 const JACKPOT_START = parseEther("300");
 
@@ -279,7 +304,17 @@ const VRF_COORDINATOR_ABI = [
   }, null, 2));
   console.log("Deployment info saved to", path.pathname);
 
-  console.log("\nNext step: add RandomProvider as a consumer in your Chainlink VRF subscription and fund it with test LINK.");
+  const networkName = "arbitrumSepolia";
+
+  // one initial wait so explorer indexes contracts
+  await new Promise(r => setTimeout(r, 30_000));
+  
+  await verifyWithRetryCli(networkName, token.address, []);
+  await verifyWithRetryCli(networkName, randomProvider.address, [VRF_COORDINATOR]);
+  await verifyWithRetryCli(networkName, handler.address, [token.address]);
+  await verifyWithRetryCli(networkName, referral.address, [token.address, fallback.account.address]);
+  await verifyWithRetryCli(networkName, jackpot.address, [token.address, randomProvider.address]);
+  await verifyWithRetryCli(networkName, roulette.address, [handler.address, randomProvider.address, token.address]);
 }
 
 main().catch((e) => { console.error(e); process.exitCode = 1; });

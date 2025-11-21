@@ -8,8 +8,7 @@ import {
   Log,
   Hex,
 } from "viem";
-import { hardhat } from "viem/chains";
-
+import { arbitrumSepolia } from "viem/chains";
 import { env } from "./config.js";
 import { db } from "./db.js";
 import { loadContracts } from "./lib/contracts.js";
@@ -71,14 +70,14 @@ async function main() {
   await db.$connect();
 
   const publicClient = createPublicClient({
-    chain: hardhat,
+    chain: arbitrumSepolia,
     transport: http(env.RPC_URL),
   });
 
   const wsTransport = env.RPC_WS_URL ? webSocket(env.RPC_WS_URL) : undefined;
   const wsClient = wsTransport
     ? createPublicClient({
-        chain: hardhat,
+        chain: arbitrumSepolia,
         transport: wsTransport,
       })
     : undefined;
@@ -90,25 +89,28 @@ async function main() {
   );
 
   const latest = await publicClient.getBlockNumber();
-  console.log("Latest block:", latest);
-
+  const startBlock = env.START_BLOCK && /^\d+$/.test(env.START_BLOCK)
+    ? BigInt(env.START_BLOCK)
+    : latest;
+  console.log("Latest block:", latest, "Start block:", startBlock);
+  
   let watchers: WatchContractEventReturnType[] = [];
-  let lastIndexedBlock = latest;
+  let lastIndexedBlock = startBlock;
   let lastLogTimestamp = Date.now();
-
+  
   const watchClient = wsClient ?? publicClient;
-
+  
   await backfillSpins(
     publicClient,
     contracts.rouletteAddress,
     contracts.rouletteAbi,
-    0n,
+    startBlock,
     latest,
     referralService,
     contracts.jackpotAddress,
     contracts.jackpotAbi,
   );
-  await backfillPayments(publicClient, contracts, 0n, latest);
+  await backfillPayments(publicClient, contracts, startBlock, latest);
   const registerWatcher = () => {
     console.log("Registering contract event watchers");
 
@@ -177,7 +179,7 @@ async function main() {
               const receipt = await publicClient.getTransactionReceipt({ hash: log.transactionHash as Hex });
             
               const bet = await db.bet.findUnique({
-                where: { requestId: log.args.requestId },
+                where: { requestId: log.args.requestId.toString() },
                 select: { id: true, wager: true },
               });
             
@@ -655,7 +657,7 @@ async function backfillSpins(
       const receipt = await client.getTransactionReceipt({ hash: log.transactionHash as Hex });
     
       const bet = await db.bet.findUnique({
-        where: { requestId: log.args.requestId },
+        where: { requestId: log.args.requestId.toString() },
         select: { id: true, wager: true },
       });
     
@@ -664,72 +666,38 @@ async function backfillSpins(
         const wager = BigInt(wagerStr);
     
         for (const jl of receipt.logs) {
-          if (jl.address?.toLowerCase() !== address.toLowerCase().replace( // reuse jackpot addr if you have it in scope
-            address.toLowerCase(), jackpotAddress.toLowerCase()
-          )) {
-            // NOTE: replace this line with a simple check:
-            // if (jl.address?.toLowerCase() !== contracts.jackpotAddress.toLowerCase()) continue;
-          }
-    
+          if (jl.address?.toLowerCase() !== jackpotAddress.toLowerCase()) continue;
           try {
             const parsed = decodeEventLog({
               abi: jackpotAbi,
               data: jl.data as Hex,
               topics: jl.topics as unknown as [`0x${string}`, ...`0x${string}`[]],
             }) as { eventName: string; args: any };
-    
+        
             if (parsed.eventName === "ConsolationPaid") {
               const payout = parsed.args.payout as bigint;
               const bps = wager > 0n ? Number((payout * 10000n) / wager) : 0;
-    
-              // idempotency: skip if a CONSOLATION already exists for this bet
-              const exists = await db.jackpotEvent.findFirst({
-                where: { betId: bet.id, type: "CONSOLATION" },
-              });
+              const exists = await db.jackpotEvent.findFirst({ where: { betId: bet.id, type: "CONSOLATION" } });
               if (!exists) {
                 await db.jackpotEvent.create({
-                  data: {
-                    betId: bet.id,
-                    type: "CONSOLATION",
-                    tierIndex: null,
-                    payout: payout.toString(),
-                    consolationMultiplier: bps.toString(),
-                  },
+                  data: { betId: bet.id, type: "CONSOLATION", tierIndex: null, payout: payout.toString(), consolationMultiplier: bps.toString() },
                 });
               }
             } else if (parsed.eventName === "TierWon") {
               const payout = parsed.args.payout as bigint;
               const tierIndex = Number(parsed.args.tierIndex);
-    
-              const exists = await db.jackpotEvent.findFirst({
-                where: { betId: bet.id, type: "TIER" },
-              });
+              const exists = await db.jackpotEvent.findFirst({ where: { betId: bet.id, type: "TIER" } });
               if (!exists) {
                 await db.jackpotEvent.create({
-                  data: {
-                    betId: bet.id,
-                    type: "TIER",
-                    tierIndex,
-                    payout: payout.toString(),
-                    consolationMultiplier: null,
-                  },
+                  data: { betId: bet.id, type: "TIER", tierIndex, payout: payout.toString(), consolationMultiplier: null },
                 });
               }
             } else if (parsed.eventName === "JackpotWon") {
               const payout = parsed.args.payout as bigint;
-    
-              const exists = await db.jackpotEvent.findFirst({
-                where: { betId: bet.id, type: "JACKPOT" },
-              });
+              const exists = await db.jackpotEvent.findFirst({ where: { betId: bet.id, type: "JACKPOT" } });
               if (!exists) {
                 await db.jackpotEvent.create({
-                  data: {
-                    betId: bet.id,
-                    type: "JACKPOT",
-                    tierIndex: null,
-                    payout: payout.toString(),
-                    consolationMultiplier: null,
-                  },
+                  data: { betId: bet.id, type: "JACKPOT", tierIndex: null, payout: payout.toString(), consolationMultiplier: null },
                 });
               }
             }
@@ -737,7 +705,7 @@ async function backfillSpins(
             // skip unrecognized logs
           }
         }
-      }
+    } 
     } catch (e) {
       // optional: log but don't fail backfill
       console.warn("backfill jackpot parse error", e);

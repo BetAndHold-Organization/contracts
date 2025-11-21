@@ -129,7 +129,7 @@ export async function fetchBetByIdentifiers(
 ) {
   const orClauses: Prisma.BetWhereInput[] = [];
   if (args.id) orClauses.push({ id: args.id });
-  if (args.requestId) orClauses.push({ requestId: BigInt(args.requestId) });
+  if (args.requestId) orClauses.push({ requestId: args.requestId });
   if (args.txHash) orClauses.push({ txHash: args.txHash.toLowerCase() });
   const bet = await db.bet.findFirst({
     where: {

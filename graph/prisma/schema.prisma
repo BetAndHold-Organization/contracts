@@ -10,7 +10,7 @@ datasource db {
 
 model Bet {
   id                   String         @id @default(uuid())
-  requestId            BigInt         @unique
+  requestId            String         @unique
   player               String
   referrer             String?
   blockNumber          BigInt
@@ -76,7 +76,7 @@ model PaymentEvent {
   referralBps      Int
   // optional: set by indexer if you correlate with game logs
   source           String?
-  requestId        BigInt?
+  requestId        String?
   createdAt        DateTime @default(now())
 
   contributions    ReferralContribution[]
@@ -99,7 +99,7 @@ model ReferralContribution {
   referrer     String?
   level        Int
   amount       Decimal  @db.Decimal(78, 0)
-  requestId    BigInt?
+  requestId    String?
   txHash       String
   blockNumber  BigInt
   createdAt    DateTime @default(now())

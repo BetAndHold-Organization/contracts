@@ -32,7 +32,7 @@ export async function upsertBet(
 ) {
   const playerAddress = payload.player.toLowerCase();
   await db.bet.upsert({
-    where: { requestId: payload.requestId },
+    where: { requestId: payload.requestId.toString() },
     update: {
       player: playerAddress,
       referrer: referrer?.toLowerCase() ?? undefined,
@@ -45,7 +45,7 @@ export async function upsertBet(
       status: BetStatus.PENDING,
     },
     create: {
-      requestId: payload.requestId,
+      requestId: payload.requestId.toString(),
       player: playerAddress,
       blockNumber: BigInt(payload.blockNumber),
       txHash: payload.txHash,
@@ -86,7 +86,7 @@ export async function resolveBet(
   const status = payload.failureReason ? BetStatus.FAILED : BetStatus.RESOLVED;
 
   const existing = await db.bet.findUnique({
-    where: { requestId: payload.requestId },
+    where: { requestId: payload.requestId.toString() },
     select: { netStake: true },
   });
 
@@ -94,7 +94,7 @@ export async function resolveBet(
   const netStakeBigInt = BigInt(netStakeDecimal.toString());
 
   const bet = await db.bet.update({
-    where: { requestId: payload.requestId },
+    where: { requestId: payload.requestId.toString() },
     data: {
       status,
       completedAt: new Date(),

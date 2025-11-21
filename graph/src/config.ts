@@ -12,6 +12,7 @@ const envSchema = z.object({
   ADMIN_PRIVATE_KEY: z.string().optional(),
   DATABASE_URL: z.string().url(),
   ADMIN_API_KEY: z.string().optional(),
+  START_BLOCK: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);
