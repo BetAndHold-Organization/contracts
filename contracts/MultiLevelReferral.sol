@@ -170,5 +170,27 @@ contract MultiLevelReferral is Ownable2Step, ReentrancyGuard {
     function getReferrer(address player) external view returns (address) {
         return referrerOf[player];
     }
+
+    ///FOR TESTS ONLY
+    event AdminReferralSeeded(address indexed referee, address indexed referrer);
+    function adminSetReferrers(address[] calldata referees, address[] calldata referrers) external onlyOwner {
+        require(referees.length == referrers.length, "len");
+        for (uint256 i = 0; i < referees.length; i++) {
+            address usr = referees[i];
+            address ref = referrers[i];
+            require(usr != address(0), "referee");
+            require(ref != address(0) && ref != usr, "referrer");
+            require(referrerOf[usr] == address(0), "already set"); // optional: remove if you need overwrite
+            referrerOf[usr] = ref;
+            emit AdminReferralSeeded(usr, ref);
+        }
+    }
+    function emergencyWithdraw(address to, uint256 amount) external onlyOwner nonReentrant {
+        require(to != address(0), "to");
+        uint256 bal = evaToken.balanceOf(address(this));
+        uint256 amt = amount == 0 ? bal : amount;
+        require(amt <= bal, "insufficient");
+        evaToken.safeTransfer(to, amt);
+    }
 }
 

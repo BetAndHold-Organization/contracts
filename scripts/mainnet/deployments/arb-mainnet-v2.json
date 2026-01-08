@@ -1,0 +1,44 @@
+{
+  "version": "V2",
+  "deployedAt": "2026-01-07T19:40:50.878Z",
+  "token": "0x45D9831d8751B2325f3DBf48db748723726e1C8c",
+  "randomProvider": "0x6d1c1a97f3cc43475142900ebb5ebb890791eae8",
+  "handler": "0x3bdfa6ba04d81af6835405a96c253ccd7d55c1de",
+  "referral": "0x176c6b310108b649b5376a385187f0b341c24ffe",
+  "jackpot": "0x4affab89fda9b0af3f28ea82dcfca5ec6034262f",
+  "roulette": "0x8066cf10b27ed05072196cef2a479a3220c63dbc",
+  "house": "0x8248f7b7f7cb8fa51db9138b42a6bb7af1721e9e",
+  "fallback": "0x8248f7b7f7cb8fa51db9138b42a6bb7af1721e9e",
+  "deployer": "0xc8e31828f454f5d75b44c1c6d78641584b8c898c",
+  "config": {
+    "tierShares": [
+      625,
+      625,
+      625,
+      625,
+      625,
+      625,
+      625,
+      625,
+      5000
+    ],
+    "tierCosts": [
+      "500000000000000000",
+      "600000000000000000",
+      "700000000000000000",
+      "800000000000000000",
+      "1000000000000000000",
+      "1200000000000000000",
+      "1500000000000000000",
+      "2000000000000000000",
+      "3000000000000000000"
+    ],
+    "probMin": 100,
+    "probMax": 5000,
+    "probIncrement": 10,
+    "minWager": "100000000000000000",
+    "maxWager": "3000000000000000000",
+    "jackpotContribBps": 350,
+    "replayBps": 1000
+  }
+}

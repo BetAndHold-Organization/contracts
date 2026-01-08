@@ -1,0 +1,16 @@
+{
+  "slots": "0xa04cff8ee328554fa056ded1151dc89bf0aba907",
+  "token": "0x45D9831d8751B2325f3DBf48db748723726e1C8c",
+  "randomProvider": "0x19c8c1d033f12ad175ff0463cb34fba719aa5939",
+  "handler": "0x298786c245756a9410e123f7aa82cf5cd23897fc",
+  "jackpot": "0x09dbb1214758188052be47daa60608347d14d40b",
+  "house": "0x8248f7b7f7cb8fa51db9138b42a6bb7af1721e9e",
+  "config": {
+    "houseEdgeBps": 200,
+    "referralBps": 200,
+    "jackpotContribBps": 350,
+    "minWagerPerLine": "100000000000000000",
+    "maxWagerPerLine": "3000000000000000000"
+  },
+  "deployedAt": "2026-01-02T19:02:43.726Z"
+}

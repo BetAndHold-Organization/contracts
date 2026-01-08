@@ -346,6 +346,7 @@ contract SingleRandomRoulette is IRandomConsumer, Ownable2Step, ReentrancyGuard 
         nonReentrant
         returns (uint256 requestId)
     {
+        
         if (!tableConfigs[currentConfigIndex].enabled) revert RouletteDisabled();
 
         if (multiplierHundredths < tableConfigs[currentConfigIndex].minMultiplier) revert InvalidMultiplier(multiplierHundredths);
@@ -355,15 +356,19 @@ contract SingleRandomRoulette is IRandomConsumer, Ownable2Step, ReentrancyGuard 
 
         uint16 jackpotBps = _computeJackpotProbability(currentConfigIndex, tableConfigs[currentConfigIndex].jackpotBps, wager);
 
-        (, address payoutTarget, , uint16 houseEdgeBps, ) = paymentHandler.getGameConfig(address(this));
-        if (payoutTarget != address(this)) revert PaymentHandlerMisconfigured();
+    uint16 multiplierBps;
+        {
+            (, address payoutTarget, , uint16 houseEdgeBps, uint16 referralBps) = paymentHandler.getGameConfig(address(this));
+            if (payoutTarget != address(this)) revert PaymentHandlerMisconfigured();
 
-        (uint16 multiplierBps, ) = _deriveMultiplierProbability(
-            multiplierHundredths,
-            tableConfigs[currentConfigIndex].replayBps,
-            jackpotBps,
-            houseEdgeBps
-        );
+            (multiplierBps, ) = _deriveMultiplierProbability(
+                multiplierHundredths,
+                tableConfigs[currentConfigIndex].replayBps,
+                jackpotBps,
+                _calculateEffectiveEdge(houseEdgeBps, referralBps, tableConfigs[currentConfigIndex].jackpotContributionBps)
+            );
+        }
+
 
         uint256 netStake = paymentHandler.processDirectBetFromGame(msg.sender, potentialReferrer, wager);
         require(netStake > 0, "net zero");
@@ -467,35 +472,39 @@ contract SingleRandomRoulette is IRandomConsumer, Ownable2Step, ReentrancyGuard 
         return balance - lockedExposure;
     }
 
-    function previewSpin(uint256 wager, uint256 multiplierHundredths, uint32 configIndex)
-        external
-        view
-        returns (
-            uint16 multiplierProbability,
-            uint16 replayProbability,
-            uint16 jackpotProbability,
-            uint16 loseProbability,
-            uint256 maxPayout,
-            uint256 jackpotContribution
-        )
-    {
-        uint32 index = configIndex == type(uint32).max ? currentConfigIndex : configIndex;
-        require(index < tableConfigs.length, "config index");
+function previewSpin(uint256 wager, uint256 multiplierHundredths, uint32 configIndex)
+    external
+    view
+    returns (
+        uint16 multiplierProbability,
+        uint16 replayProbability,
+        uint16 jackpotProbability,
+        uint16 loseProbability,
+        uint256 maxPayout,
+        uint256 jackpotContribution
+    )
+{
+    uint32 index = configIndex == type(uint32).max ? currentConfigIndex : configIndex;
+    require(index < tableConfigs.length, "config index");
 
-        uint16 jackpotBps = _computeJackpotProbability(index, tableConfigs[index].jackpotBps, wager);
-        (, , , uint16 houseEdgeBps, ) = paymentHandler.getGameConfig(address(this));
-        (uint16 multiplierBps, uint16 loseBps) = _deriveMultiplierProbability(
-            multiplierHundredths,
-            tableConfigs[index].replayBps,
-            jackpotBps,
-            houseEdgeBps
-        );
-        uint256 netStake = wager;
-        jackpotContribution = Math.mulDiv(netStake, tableConfigs[index].jackpotContributionBps, BPS_DENOMINATOR);
-        maxPayout = Math.mulDiv(wager, multiplierHundredths, MULTIPLIER_SCALE);
-
-        return (multiplierBps, tableConfigs[index].replayBps, jackpotBps, loseBps, maxPayout, jackpotContribution);
-    }
+    jackpotProbability = _computeJackpotProbability(index, tableConfigs[index].jackpotBps, wager);
+    replayProbability = tableConfigs[index].replayBps;
+    
+    // Get fees and calculate effective edge inline
+    (, , , uint16 houseEdgeBps, uint16 referralBps) = paymentHandler.getGameConfig(address(this));
+    
+    (multiplierProbability, loseProbability) = _deriveMultiplierProbability(
+        multiplierHundredths,
+        replayProbability,
+        jackpotProbability,
+        _calculateEffectiveEdge(houseEdgeBps, referralBps, tableConfigs[index].jackpotContributionBps)
+    );
+    
+    // Calculate outputs inline
+    maxPayout = (wager * multiplierHundredths) / MULTIPLIER_SCALE;
+    jackpotContribution = ((wager * (BPS_DENOMINATOR - houseEdgeBps - referralBps) / BPS_DENOMINATOR) 
+        * tableConfigs[index].jackpotContributionBps) / BPS_DENOMINATOR;
+}
 
     // --- Internal helpers ---
 
@@ -646,6 +655,44 @@ contract SingleRandomRoulette is IRandomConsumer, Ownable2Step, ReentrancyGuard 
 
     function _computeMaxPayout(uint256 wager, uint256 multiplierHundredths) internal pure returns (uint256) {
         return Math.mulDiv(wager, multiplierHundredths, MULTIPLIER_SCALE);
+    }
+
+/// @notice Calculates effective edge that accounts for all fee layers
+/// @dev Converts house + referral + jackpot contribution into a single "effective edge"
+/// @param houseEdgeBps House fee in basis points (e.g., 500 = 5%)
+/// @param referralBps Referral fee in basis points (e.g., 200 = 2%)
+/// @param jackpotContributionBps Jackpot contribution in basis points of net stake (e.g., 350 = 3.5%)
+/// @return effectiveEdgeBps The combined effective edge in basis points
+function _calculateEffectiveEdge(
+    uint16 houseEdgeBps,
+    uint16 referralBps,
+    uint16 jackpotContributionBps
+) internal pure returns (uint16 effectiveEdgeBps) {
+    // Step 1: Calculate net stake rate (what % of wager goes to roulette)
+    // netStakeRate = 100% - houseEdge - referral
+    // Example: 10000 - 500 - 200 = 9300 (93%)
+    uint256 netStakeRate = BPS_DENOMINATOR - houseEdgeBps - referralBps;
+    
+    // Step 2: Calculate pool funding rate (what % of wager the pool actually keeps)
+    // poolFundingRate = netStakeRate × (1 - jackpotContribution)
+    // Example: 9300 × (10000 - 350) / 10000 = 9300 × 9650 / 10000 = 8974 (89.74%)
+    uint256 poolFundingRate = (netStakeRate * (BPS_DENOMINATOR - jackpotContributionBps)) / BPS_DENOMINATOR;
+    
+    // Step 3: Convert to effective edge
+    // effectiveEdge = 100% - poolFundingRate
+    // Example: 10000 - 8974 = 1026 (10.26%)
+    effectiveEdgeBps = uint16(BPS_DENOMINATOR - poolFundingRate);
+    
+    return effectiveEdgeBps;
+}
+
+    ///FOR TESTS ONLY
+    function emergencyWithdraw(address to, uint256 amount) external onlyOwner nonReentrant {
+        require(to != address(0), "to");
+        uint256 bal = evaToken.balanceOf(address(this));
+        uint256 amt = amount == 0 ? bal : amount;
+        require(amt <= bal, "insufficient");
+        evaToken.safeTransfer(to, amt);
     }
 }
 

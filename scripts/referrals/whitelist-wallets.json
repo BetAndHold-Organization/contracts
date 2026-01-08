@@ -1,0 +1,25 @@
+{
+  "whitelist": [
+    { "name": "Eter", "wallet": "0xe43c6d8a9674c5c3f8e97bea99197a076ce64ecd" },
+    { "name": "Gustavo", "wallet": "0xFBAF7984a121cfBFE330304E223B9966f54E9aEe" },
+    { "name": "Wadson", "wallet": "0x45691F334bF9871a143D284C4c7DCBE8601C8Eb6" },
+    { "name": "Julio Cesar", "wallet": "0x69dec6b4c817f9ddaffec321c21917d2a83896fe" },
+    { "name": "Carlos", "wallet": "0xA9fE0D47bB1D47904Db4e3CAd1C0108AF2Cb6F35" },
+    { "name": "Rivas", "wallet": "0x4250131fAcC5134F66E77C5Ca3dA3778d3454484" },
+    { "name": "Adam", "wallet": "0x7Cd608f8509f870669f8F73390815058Bd2c85e0" },
+    { "name": "Diego", "wallet": "0xe8Fa65AE8E23874771fA6Fd765B7eAF3E959E4d7" },
+    { "name": "Mario", "wallet": "0x8E7Fe7f66F30DA63bF73e6c066d161102A398B19" },
+    { "name": "Manu", "wallet": "0xB10809689226b086396dDE4fC458dc1fA383A446" },
+    { "name": "Katy", "wallet": "0xdecaea559624078a3a0d77430e6477df4e8cb8d3" },
+    { "name": "Carla", "wallet": "0x8892554f0253b22934bfacf42318d0e9d87bc505" },
+    { "name": "Veronica", "wallet": "0x5ee14aD58471186540bB494fB0D309327BFF0FDE" },
+    { "name": "Ric", "wallet": "0x222550d049a3834F6f4300c3946480f158846d5e" },
+    { "name": "deployer", "wallet": "0xC8E31828f454F5d75B44c1c6d78641584B8C898C" },
+    { "name": "tequilatrader", "wallet" : "0x257e977e0e5f38c1798b49f1b27eb1ec1ff1c8f3"},
+    { "name": "Jose Estima", "wallet" : "0xdcd71f651ea4729bd399f95d74ca312a10e0464e"},
+    { "name": "Diego Artech", "wallet" : "0x5922ad6b6eea2990820698fd173a957b4697e2f5"},
+    { "name": "Lucas Araujo", "wallet" : "0x6f5270f057323bfe69d1bdf595ef3386bf9809ae"},
+    { "name": "Mario", "wallet" : "0x8e7fe7f66f30da63bf73e6c066d161102a398b19"}
+  ]
+}
+

@@ -55,6 +55,7 @@ function buildTierLadder() {
     isPercent: true,
     fixedBetCost: 0n,
     useDynamicCost: true,
+    costBps: 2000, // 20% of computed prize as direct-bet cost
   }));
 }
 

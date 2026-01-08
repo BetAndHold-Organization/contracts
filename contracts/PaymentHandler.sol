@@ -30,7 +30,16 @@ contract PaymentHandler is Ownable2Step, ReentrancyGuard {
     }
 
     mapping(address => GameConfig) private gameConfigs;
+    /// Whitelist and blacklist for initial test scenario
+    bool public whitelistEnabled;
+    bool public blacklistEnabled;
+    mapping(address => bool) public whitelist;
+    mapping(address => bool) public blacklist;
 
+    event WhitelistStatusChanged(bool enabled);
+    event BlacklistStatusChanged(bool enabled);
+    event WhitelistUpdated(address indexed account, bool value);
+    event BlacklistUpdated(address indexed account, bool value);
     event GameRegistered(
         address indexed game,
         address payoutTarget,
@@ -70,6 +79,35 @@ contract PaymentHandler is Ownable2Step, ReentrancyGuard {
         emit ReferralContractSet(referralContract_);
     }
 
+/// Access from blacklist and whitelist functions
+    function _checkAccess(address player) internal view {
+        if (blacklistEnabled && blacklist[player]) revert("Blacklisted");
+        if (whitelistEnabled && !whitelist[player]) revert("Not whitelisted");
+    }
+
+        function setWhitelistEnabled(bool enabled) external onlyOwner {
+        whitelistEnabled = enabled;
+        emit WhitelistStatusChanged(enabled);
+    }
+
+    function setBlacklistEnabled(bool enabled) external onlyOwner {
+        blacklistEnabled = enabled;
+        emit BlacklistStatusChanged(enabled);
+    }
+
+    function setWhitelist(address[] calldata addrs, bool value) external onlyOwner {
+        for (uint256 i = 0; i < addrs.length; i++) {
+            whitelist[addrs[i]] = value;
+            emit WhitelistUpdated(addrs[i], value);
+        }
+    }
+
+    function setBlacklist(address[] calldata addrs, bool value) external onlyOwner {
+        for (uint256 i = 0; i < addrs.length; i++) {
+            blacklist[addrs[i]] = value;
+            emit BlacklistUpdated(addrs[i], value);
+        }
+    }
     function registerGame(
         address game,
         address payoutTarget,
@@ -142,6 +180,7 @@ contract PaymentHandler is Ownable2Step, ReentrancyGuard {
         nonReentrant
         returns (uint256 netAmount)
     {
+        _checkAccess(bettor);
         GameConfig memory cfg = gameConfigs[msg.sender];
         require(cfg.exists, "Game not registered");
         require(cfg.enabled, "Game disabled");

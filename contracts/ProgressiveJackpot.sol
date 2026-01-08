@@ -60,6 +60,7 @@ contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer {
         bool isPercent;      // true = prizeMetric is % of balance, false = fixed amount
         uint256 fixedBetCost; // cost in EVA to attempt this tier; 0 means derive dynamically
         bool useDynamicCost;  // when true, cost is derived from balance (prorated)
+        uint16  costBps; // % of prize for dynamic cost (1..10_000)
     }
 
     struct OutcomeConfig {
@@ -295,15 +296,22 @@ struct GameConfig {
     }
 
     // ---- Tier ladder management ----
+event TierCostBpsUpdated(uint8 indexed tierIndex, uint16 costBps);
 
+    function setTierCostBps(uint8 tierIndex, uint16 bps) external onlyOwner {
+        require(tierIndex < tierConfigs.length, "tier");
+        require(bps > 0 && bps <= 10_000, "bps");
+        tierConfigs[tierIndex].costBps = bps;
+        emit TierCostBpsUpdated(tierIndex, bps);
+    }
     function setTierLadder(TierConfig[] calldata tiers) external onlyOwner {
         if (tiers.length == 0 || tiers.length > MAX_ENTRIES) revert InvalidTierConfiguration();
-
         delete tierConfigs;
         for (uint256 i = 0; i < tiers.length; i++) {
             TierConfig memory tier = tiers[i];
-            if (tier.isPercent && tier.prizeMetric > 10_000) {
-                revert InvalidTierConfiguration();
+            if (tier.isPercent && tier.prizeMetric > 10_000) revert InvalidTierConfiguration();
+            if (tier.useDynamicCost) {
+                require(tier.costBps > 0 && tier.costBps <= 10_000, "costBps");
             }
             tierConfigs.push(tier);
             emit TierLadderUpdated(uint8(i), tiers[i].prizeMetric, tiers[i].isPercent, tiers[i].isTerminal);
@@ -333,7 +341,8 @@ struct GameConfig {
                 isTerminal: false,
                 isPercent: true,
                 fixedBetCost: 0,
-                useDynamicCost: true
+                useDynamicCost: true,
+                costBps: 0
             });
             return (tierIndex, tier, 0);
         }
@@ -523,7 +532,8 @@ struct GameConfig {
         if (!tier.useDynamicCost) {
             return tier.fixedBetCost;
         }
-        return _computePrizeAmount(tier);
+        uint256 prize = _computePrizeAmount(tier);
+        return (prize * tier.costBps) / 10_000;
     }
 
     function _computeMaxDirectBetPayout(uint256 netAmount, uint8 tierIndex) internal view returns (uint256) {
@@ -715,6 +725,15 @@ function _handleOutcome(
         });
 
         emit DirectBetRequested(requestId, bettor, netAmount, tierIndex);
+    }
+
+    ///FOR TESTS ONLY
+    function emergencyWithdraw(address to, uint256 amount) external onlyOwner nonReentrant {
+        require(to != address(0), "to");
+        uint256 bal = evaToken.balanceOf(address(this));
+        uint256 amt = amount == 0 ? bal : amount;
+        require(amt <= bal, "insufficient");
+        evaToken.safeTransfer(to, amt);
     }
 }
 
