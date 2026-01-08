@@ -40,5 +40,6 @@
     "maxWager": "3000000000000000000",
     "jackpotContribBps": 350,
     "replayBps": 1000
-  }
+  },
+  "slots": "0x253e4d5cd352513a30f9e42a0d5ad0a4bd9ce284"
 }
