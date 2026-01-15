@@ -39,7 +39,7 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     uint256 public constant MAX_ENTRIES = 64;
     uint8 public constant TIER_COUNT = 9;
     uint8 private constant FIRST_TIER_OFFSET = 3; // outcomes[3] is tier 0, outcomes[4] is tier 1, ...
-    uint8 private constant LAST_TIER_INDEX = 8;   // Tier 9 (index 8) - consolations come from here
+    uint8 private constant LAST_TIER_INDEX = 8;   // Tier 9 (index 8)
 
     // ═══════════════════════════════════════════════════════════════════════
     // STRUCTS (Compatible with V1 where possible)
@@ -605,10 +605,10 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         // Check tier pot can pay
         if (tierPrize == 0) revert InsufficientFunds();
         
-        // Check tier 9 can pay max consolation
+        // Check current tier can pay max consolation
         if (cfg.maxConsolationMultiplier > 0) {
             uint256 maxConsolation = (betAmount * cfg.maxConsolationMultiplier) / 10_000;
-            if (tierPotBalance[LAST_TIER_INDEX] < maxConsolation) revert InsufficientFunds();
+            if (tierPotBalance[tierIndex] < maxConsolation) revert InsufficientFunds();
         }
     }
 
@@ -636,16 +636,14 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         uint8 outcomeIndex = _resolveOutcome(cfg.outcomes, roll, tierIndex, cfg.fallbackIdx, cfg.fallbackSet);
         OutcomeConfig memory outcome = cfg.outcomes[outcomeIndex];
 
-        // Solvency checks
+        // Solvency checks (soft - will gracefully degrade if underfunded)
         bool awardThisTier = outcome.awardsTier && (outcomeIndex == FIRST_TIER_OFFSET + tierIndex);
-        if (awardThisTier) {
-            require(tierPotBalance[tierIndex] > 0, "Tier pot empty");
-        } else if (outcome.consolationMultiplier > 0) {
-            uint256 consolationAmount = (betAmount * outcome.consolationMultiplier) / 10_000;
-            require(tierPotBalance[LAST_TIER_INDEX] >= consolationAmount, "Tier 9 pot underfunded");
+        if (awardThisTier && tierPotBalance[tierIndex] == 0) {
+            // Tier pot empty - will return 0 payout gracefully
         }
 
-        payout = _handleOutcome(player, betAmount, tierIndex, outcomeIndex, outcome);
+        // Pass 0 for maxPayout = no cap (game entries resolve immediately, no race condition)
+        payout = _handleOutcome(player, betAmount, tierIndex, outcomeIndex, outcome, 0);
 
         uint256 entryId = nextEntryId++;
         entryHistory[entryId] = EntryRecord({
@@ -721,12 +719,14 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         uint8 outcomeIndex = _resolveOutcome(directOutcomes, roll, info.tierIndex, directFallbackIdx, directFallbackSet);
         OutcomeConfig memory outcome = directOutcomes[outcomeIndex];
 
-        uint256 payout = _handleOutcome(info.bettor, info.amount, info.tierIndex, outcomeIndex, outcome);
+        // Get maxPayout (what was promised at bet time)
         uint256 maxPayout = directBetMaxPayout[requestId];
         if (maxPayout == 0) {
             maxPayout = _computeMaxDirectBetPayout(info.amount, info.tierIndex);
         }
-        require(payout <= maxPayout, "Payout exceeds max");
+
+        // Pass maxPayout to cap tier prizes (graceful handling of race conditions)
+        uint256 payout = _handleOutcome(info.bettor, info.amount, info.tierIndex, outcomeIndex, outcome, maxPayout);
 
         uint256 entryId = nextEntryId++;
         entryHistory[entryId] = EntryRecord({
@@ -858,14 +858,15 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         uint256 betAmount,
         uint8 tierIndex,
         uint8 outcomeIndex,
-        OutcomeConfig memory outcome
+        OutcomeConfig memory outcome,
+        uint256 maxPayout
     ) internal returns (uint256 payout) {
         JackpotState storage state = jackpotState;
 
         bool isCurrentTierAward = outcome.awardsTier && (outcomeIndex == FIRST_TIER_OFFSET + tierIndex);
 
         if (isCurrentTierAward) {
-            payout = _awardTier(player, tierIndex, outcome);
+            payout = _awardTier(player, tierIndex, outcome, maxPayout);
             _updateProgression(state, tierIndex, outcome);
             _resetTierProbability(tierIndex);
             return payout;
@@ -874,13 +875,19 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         if (outcome.consolationMultiplier > 0) {
             payout = (betAmount * outcome.consolationMultiplier) / 10_000;
             
-            // Pay from tier 9 pot
-            require(tierPotBalance[LAST_TIER_INDEX] >= payout, "Tier 9 underfunded");
-            tierPotBalance[LAST_TIER_INDEX] -= payout;
+            // Cap consolation to available funds (graceful degradation)
+            uint256 available = tierPotBalance[tierIndex];
+            if (payout > available) {
+                payout = available;
+            }
             
-            evaToken.safeTransfer(player, payout);
-            state.totalConsolationPaid += payout;
-            emit ConsolationPaid(player, payout, outcome.consolationMultiplier);
+            // Pay from CURRENT tier's pot
+            if (payout > 0) {
+                tierPotBalance[tierIndex] -= payout;
+                evaToken.safeTransfer(player, payout);
+                state.totalConsolationPaid += payout;
+                emit ConsolationPaid(player, payout, outcome.consolationMultiplier);
+            }
             return payout;
         }
 
@@ -891,16 +898,27 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     function _awardTier(
         address player,
         uint8 tierIndex,
-        OutcomeConfig memory outcome
+        OutcomeConfig memory outcome,
+        uint256 maxPayout
     ) internal returns (uint256 payout) {
         require(tierIndex < tierConfigs.length, "Invalid tier");
 
-        // Prize = tier pot balance
-        payout = tierPotBalance[tierIndex];
-        require(payout > 0, "Tier pot empty");
+        // Prize = tier pot balance, but capped at maxPayout if specified
+        uint256 potBalance = tierPotBalance[tierIndex];
         
-        // Empty the pot
-        tierPotBalance[tierIndex] = 0;
+        // Graceful handling: if pot is empty, payout is 0
+        if (potBalance == 0) {
+            return 0;
+        }
+        
+        // Cap payout at maxPayout (0 means no cap)
+        if (maxPayout > 0 && potBalance > maxPayout) {
+            payout = maxPayout;
+            tierPotBalance[tierIndex] = potBalance - maxPayout;  // Keep remainder in pot
+        } else {
+            payout = potBalance;
+            tierPotBalance[tierIndex] = 0;  // Empty the pot
+        }
         
         jackpotState.lastWinner = player;
         jackpotState.lastWinTimestamp = block.timestamp;

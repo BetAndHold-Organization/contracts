@@ -86,7 +86,8 @@ contract RandomProviderV2 is VRFConsumerBaseV2Plus {
         uint256 indexed requestId,
         address indexed consumer,
         uint256 rangeCount,
-        uint256 gasLimit
+        uint256 gasLimit,
+        RandomDeriveLib.Range[] ranges  // Kept for Graph compatibility
     );
     event RandomWordsFulfilled(
         uint256 indexed requestId,
@@ -271,7 +272,7 @@ contract RandomProviderV2 is VRFConsumerBaseV2Plus {
         totalRequests++;
         pendingRequestCount++;
 
-        emit RandomWordsRequested(requestId, msg.sender, ranges.length, safeGasLimit);
+        emit RandomWordsRequested(requestId, msg.sender, ranges.length, safeGasLimit, ranges);
         return requestId;
     }
 

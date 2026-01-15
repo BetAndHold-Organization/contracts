@@ -1,0 +1,50 @@
+{
+  "version": "V3",
+  "deployedAt": "2026-01-15T21:49:02.897Z",
+  "token": "0x45D9831d8751B2325f3DBf48db748723726e1C8c",
+  "randomProvider": "0x4e50807f2a6482ccf5ed7ac4e959b7006f279935",
+  "handler": "0x632794fd739cb98439f689b532daddd33de2c13b",
+  "referral": "0x262c224df4d93a5de5e2632c0fa777eef0beb45d",
+  "jackpot": "0x73b3b37735afbd65e24d6e3aaaeccbaa68b6fd55",
+  "roulette": "0x028e784bcd30c05218674fe45583b45ddfd48311",
+  "house": "0x8248f7b7f7cb8fa51db9138b42a6bb7af1721e9e",
+  "fallback": "0x8248f7b7f7cb8fa51db9138b42a6bb7af1721e9e",
+  "deployer": "0xc8e31828f454f5d75b44c1c6d78641584b8c898c",
+  "config": {
+    "tierShares": [
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      2000
+    ],
+    "tierCosts": [
+      "500000000000000000",
+      "500000000000000000",
+      "500000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "2000000000000000000",
+      "2000000000000000000",
+      "3000000000000000000"
+    ],
+    "probMin": 10,
+    "probMax": 2000,
+    "probIncrement": 3,
+    "minWager": "100000000000000000",
+    "maxWager": "3000000000000000000",
+    "jackpotContribBps": 350,
+    "replayBps": 500,
+    "jackpotBps": 100
+  },
+  "changes": [
+    "RandomProviderV2: Optimized gas (~180k savings per request)",
+    "ProgressiveJackpotV2: Consolations paid from current tier (not tier 9)",
+    "ProgressiveJackpotV2: Race condition fix - graceful payout capping"
+  ]
+}
