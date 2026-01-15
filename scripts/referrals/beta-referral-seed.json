@@ -1,0 +1,408 @@
+{
+  "description": "Beta testers referral structure - Top players are Tier 1 (no referrer), lower activity players referred by top performers",
+  "generatedAt": "2026-01-08",
+  "structure": {
+    "tier1": "Top 5 by bets - NO referrer (root level)",
+    "tier2": "Next 10 by bets - referred by Tier 1 round-robin",
+    "tier3": "Remaining players - referred by Tier 1 + Tier 2 round-robin"
+  },
+  "referrals": [
+    {
+      "referee": "0x298739c5d431159d26b7de9e43a8c2e6e74a9063",
+      "referrer": "0xdecaea559624078a3a0d77430e6477df4e8cb8d3",
+      "note": "Tier2 #1 (261 bets) -> Tier1 #1 (620 bets)"
+    },
+    {
+      "referee": "0xd82828e55a100637fb8c98a274c304ae87d29432",
+      "referrer": "0xf48eb579acd833e30afcdf43b158c567b3560076",
+      "note": "Tier2 #2 (248 bets) -> Tier1 #2 (331 bets)"
+    },
+    {
+      "referee": "0xa9fe0d47bb1d47904db4e3cad1c0108af2cb6f35",
+      "referrer": "0x222550d049a3834f6f4300c3946480f158846d5e",
+      "note": "Tier2 #3 (216 bets) -> Tier1 #3 (296 bets)"
+    },
+    {
+      "referee": "0x8689d1d8471bf5f97efe9fdd96fa242a596d7b49",
+      "referrer": "0x0467674bbf7e540a4954e9905c500c0e55407311",
+      "note": "Tier2 #4 (203 bets) -> Tier1 #4 (295 bets)"
+    },
+    {
+      "referee": "0x45691f334bf9871a143d284c4c7dcbe8601c8eb6",
+      "referrer": "0x1a60fdc5eac05cb6a7f11c53fa14b0294d5ec22a",
+      "note": "Tier2 #5 (183 bets) -> Tier1 #5 (275 bets)"
+    },
+    {
+      "referee": "0xc4eedea47242617977a77c35fe54f70d7e4bb2f0",
+      "referrer": "0xdecaea559624078a3a0d77430e6477df4e8cb8d3",
+      "note": "Tier2 #6 (149 bets) -> Tier1 #1"
+    },
+    {
+      "referee": "0x8e7fe7f66f30da63bf73e6c066d161102a398b19",
+      "referrer": "0xf48eb579acd833e30afcdf43b158c567b3560076",
+      "note": "Tier2 #7 (144 bets) -> Tier1 #2"
+    },
+    {
+      "referee": "0x798b550766e9e708eafcd2b21c596453e3eb7256",
+      "referrer": "0x222550d049a3834f6f4300c3946480f158846d5e",
+      "note": "Tier2 #8 (140 bets) -> Tier1 #3"
+    },
+    {
+      "referee": "0x85feaa66405c16647f3aebc525137fb271e66a2e",
+      "referrer": "0x0467674bbf7e540a4954e9905c500c0e55407311",
+      "note": "Tier2 #9 (112 bets) -> Tier1 #4"
+    },
+    {
+      "referee": "0x4cc4d14fabbf950de039245ece31c5e1be71d0cb",
+      "referrer": "0x1a60fdc5eac05cb6a7f11c53fa14b0294d5ec22a",
+      "note": "Tier2 #10 (86 bets) -> Tier1 #5"
+    },
+    {
+      "referee": "0xc86efeb23e102b927b07073ca8bf4ad9c9e518e6",
+      "referrer": "0xdecaea559624078a3a0d77430e6477df4e8cb8d3",
+      "note": "Tier3 (66 bets) -> Tier1 #1"
+    },
+    {
+      "referee": "0x1867dc9feaf0352fad2f8e0335d4cd70e973bd1c",
+      "referrer": "0xf48eb579acd833e30afcdf43b158c567b3560076",
+      "note": "Tier3 (65 bets) -> Tier1 #2"
+    },
+    {
+      "referee": "0xe43c6d8a9674c5c3f8e97bea99197a076ce64ecd",
+      "referrer": "0x222550d049a3834f6f4300c3946480f158846d5e",
+      "note": "Tier3 (63 bets) -> Tier1 #3"
+    },
+    {
+      "referee": "0x5952c90d909c401c1c3fc512ef99f5aa289a3247",
+      "referrer": "0x0467674bbf7e540a4954e9905c500c0e55407311",
+      "note": "Tier3 (61 bets) -> Tier1 #4"
+    },
+    {
+      "referee": "0x6f5270f057323bfe69d1bdf595ef3386bf9809ae",
+      "referrer": "0x1a60fdc5eac05cb6a7f11c53fa14b0294d5ec22a",
+      "note": "Tier3 (56 bets) -> Tier1 #5"
+    },
+    {
+      "referee": "0x140b55e5a1e55cbf87c964c494a16b3709a73afd",
+      "referrer": "0x298739c5d431159d26b7de9e43a8c2e6e74a9063",
+      "note": "Tier3 (52 bets) -> Tier2 #1"
+    },
+    {
+      "referee": "0x5ee14ad58471186540bb494fb0d309327bff0fde",
+      "referrer": "0xd82828e55a100637fb8c98a274c304ae87d29432",
+      "note": "Tier3 (50 bets) -> Tier2 #2"
+    },
+    {
+      "referee": "0xeaef0d634a43723f4304790538ebc14a7d5cfa0c",
+      "referrer": "0xa9fe0d47bb1d47904db4e3cad1c0108af2cb6f35",
+      "note": "Tier3 (45 bets) -> Tier2 #3"
+    },
+    {
+      "referee": "0x85b25236daf01762343e8acbdedd3b421480b607",
+      "referrer": "0x8689d1d8471bf5f97efe9fdd96fa242a596d7b49",
+      "note": "Tier3 (39 bets) -> Tier2 #4"
+    },
+    {
+      "referee": "0x958aaf40b8a6b8d1087d3ec20f866da8d6fc44da",
+      "referrer": "0x45691f334bf9871a143d284c4c7dcbe8601c8eb6",
+      "note": "Tier3 (39 bets) -> Tier2 #5"
+    },
+    {
+      "referee": "0xc2a3657b8c5f50a0c66f7446f395230a04bd6a81",
+      "referrer": "0xc4eedea47242617977a77c35fe54f70d7e4bb2f0",
+      "note": "Tier3 (39 bets) -> Tier2 #6"
+    },
+    {
+      "referee": "0x8892554f0253b22934bfacf42318d0e9d87bc505",
+      "referrer": "0x8e7fe7f66f30da63bf73e6c066d161102a398b19",
+      "note": "Tier3 (37 bets) -> Tier2 #7"
+    },
+    {
+      "referee": "0xd0acb3faf343ba4bc01597b459957693d61e2779",
+      "referrer": "0x798b550766e9e708eafcd2b21c596453e3eb7256",
+      "note": "Tier3 (37 bets) -> Tier2 #8"
+    },
+    {
+      "referee": "0xae703fd67e101942465401bebe2c7d51fbd2f2d6",
+      "referrer": "0x85feaa66405c16647f3aebc525137fb271e66a2e",
+      "note": "Tier3 (36 bets) -> Tier2 #9"
+    },
+    {
+      "referee": "0xc8e31828f454f5d75b44c1c6d78641584b8c898c",
+      "referrer": "0x4cc4d14fabbf950de039245ece31c5e1be71d0cb",
+      "note": "Tier3 (36 bets) -> Tier2 #10"
+    },
+    {
+      "referee": "0xe8fa65ae8e23874771fa6fd765b7eaf3e959e4d7",
+      "referrer": "0xdecaea559624078a3a0d77430e6477df4e8cb8d3",
+      "note": "Tier3 (36 bets) -> Tier1 #1"
+    },
+    {
+      "referee": "0xdc616aa8afab3d82f39dbf56864cd4940ad31905",
+      "referrer": "0xf48eb579acd833e30afcdf43b158c567b3560076",
+      "note": "Tier3 (33 bets) -> Tier1 #2"
+    },
+    {
+      "referee": "0x69dec6b4c817f9ddaffec321c21917d2a83896fe",
+      "referrer": "0x222550d049a3834f6f4300c3946480f158846d5e",
+      "note": "Tier3 (30 bets) -> Tier1 #3"
+    },
+    {
+      "referee": "0x8466c8e755900edbd8577e86b6f77e1a49a94534",
+      "referrer": "0x0467674bbf7e540a4954e9905c500c0e55407311",
+      "note": "Tier3 (30 bets) -> Tier1 #4"
+    },
+    {
+      "referee": "0x3ea9a7637dc5875606235b5683a746a1be8fa433",
+      "referrer": "0x1a60fdc5eac05cb6a7f11c53fa14b0294d5ec22a",
+      "note": "Tier3 (29 bets) -> Tier1 #5"
+    },
+    {
+      "referee": "0x5161615d6e8fec99adead6debff6c5d9b02a892c",
+      "referrer": "0x298739c5d431159d26b7de9e43a8c2e6e74a9063",
+      "note": "Tier3 (29 bets) -> Tier2 #1"
+    },
+    {
+      "referee": "0x3889da6798cf14574791fda4536a407739f92478",
+      "referrer": "0xd82828e55a100637fb8c98a274c304ae87d29432",
+      "note": "Tier3 (28 bets) -> Tier2 #2"
+    },
+    {
+      "referee": "0xfb7b49e4a4fe66c42c61d41094607fa11af8238c",
+      "referrer": "0xa9fe0d47bb1d47904db4e3cad1c0108af2cb6f35",
+      "note": "Tier3 (27 bets) -> Tier2 #3"
+    },
+    {
+      "referee": "0x0f1a3b039c065014088ff30805ef6caa6968c911",
+      "referrer": "0x8689d1d8471bf5f97efe9fdd96fa242a596d7b49",
+      "note": "Tier3 (25 bets) -> Tier2 #4"
+    },
+    {
+      "referee": "0x9f157d563fbf376f90fe8b3452507649a2d6a38f",
+      "referrer": "0x45691f334bf9871a143d284c4c7dcbe8601c8eb6",
+      "note": "Tier3 (25 bets) -> Tier2 #5"
+    },
+    {
+      "referee": "0xb779e8e8ecef77850680304c4641667314a4585a",
+      "referrer": "0xc4eedea47242617977a77c35fe54f70d7e4bb2f0",
+      "note": "Tier3 (23 bets) -> Tier2 #6"
+    },
+    {
+      "referee": "0x09b4a7c9cbe8fdbb7a098b6e17d92b109ee728f4",
+      "referrer": "0x8e7fe7f66f30da63bf73e6c066d161102a398b19",
+      "note": "Tier3 (22 bets) -> Tier2 #7"
+    },
+    {
+      "referee": "0xc9bfc3383c329d4903de9d4822edb330ddd65184",
+      "referrer": "0x798b550766e9e708eafcd2b21c596453e3eb7256",
+      "note": "Tier3 (22 bets) -> Tier2 #8"
+    },
+    {
+      "referee": "0x316e41c59e2917c3efbd708d77e917ec83125000",
+      "referrer": "0x85feaa66405c16647f3aebc525137fb271e66a2e",
+      "note": "Tier3 (19 bets) -> Tier2 #9"
+    },
+    {
+      "referee": "0x4250131facc5134f66e77c5ca3da3778d3454484",
+      "referrer": "0x4cc4d14fabbf950de039245ece31c5e1be71d0cb",
+      "note": "Tier3 (18 bets) -> Tier2 #10"
+    },
+    {
+      "referee": "0x0d810ab821ea0d6d053afacdd0e7850895fe008a",
+      "referrer": "0xdecaea559624078a3a0d77430e6477df4e8cb8d3",
+      "note": "Tier3 (17 bets) -> Tier1 #1"
+    },
+    {
+      "referee": "0x433853d215b4bdb0672e2f7899e0f3c12b5d9e0a",
+      "referrer": "0xf48eb579acd833e30afcdf43b158c567b3560076",
+      "note": "Tier3 (14 bets) -> Tier1 #2"
+    },
+    {
+      "referee": "0x47aac27978d1614656373aaafd0af7091617a101",
+      "referrer": "0x222550d049a3834f6f4300c3946480f158846d5e",
+      "note": "Tier3 (14 bets) -> Tier1 #3"
+    },
+    {
+      "referee": "0x995d23e7852fea26d4e08f86be5f096f84532812",
+      "referrer": "0x0467674bbf7e540a4954e9905c500c0e55407311",
+      "note": "Tier3 (14 bets) -> Tier1 #4"
+    },
+    {
+      "referee": "0xa5f7fc4ba9c0402edf8bf38337928f5f9cb8c0c3",
+      "referrer": "0x1a60fdc5eac05cb6a7f11c53fa14b0294d5ec22a",
+      "note": "Tier3 (14 bets) -> Tier1 #5"
+    },
+    {
+      "referee": "0x09fbd54a75cf6b4b463003d36c5ec28afb785006",
+      "referrer": "0x298739c5d431159d26b7de9e43a8c2e6e74a9063",
+      "note": "Tier3 (13 bets) -> Tier2 #1"
+    },
+    {
+      "referee": "0xab6cfbe7be822c588500c4e024a1a50386f02e60",
+      "referrer": "0xd82828e55a100637fb8c98a274c304ae87d29432",
+      "note": "Tier3 (11 bets) -> Tier2 #2"
+    },
+    {
+      "referee": "0xa8f7f022316aba058a215a32c2b1335d7badad3a",
+      "referrer": "0xa9fe0d47bb1d47904db4e3cad1c0108af2cb6f35",
+      "note": "Tier3 (10 bets) -> Tier2 #3"
+    },
+    {
+      "referee": "0xe3535513902433b1e46cf3a7ad36e5c1217f9759",
+      "referrer": "0x8689d1d8471bf5f97efe9fdd96fa242a596d7b49",
+      "note": "Tier3 (9 bets) -> Tier2 #4"
+    },
+    {
+      "referee": "0x9545997091e07b5696477d18a2ee9e7c75a3b3b9",
+      "referrer": "0x45691f334bf9871a143d284c4c7dcbe8601c8eb6",
+      "note": "Tier3 (7 bets) -> Tier2 #5"
+    },
+    {
+      "referee": "0x58e34ddc17a8d3c01c8d85c45bdc5035dec1bb54",
+      "referrer": "0xc4eedea47242617977a77c35fe54f70d7e4bb2f0",
+      "note": "Tier3 (6 bets) -> Tier2 #6"
+    },
+    {
+      "referee": "0xb55b122495aecc8da5aee034e93367afa833ac72",
+      "referrer": "0x8e7fe7f66f30da63bf73e6c066d161102a398b19",
+      "note": "Tier3 (6 bets) -> Tier2 #7"
+    },
+    {
+      "referee": "0x2f0f32d10d7adbbd84d5cec06372ddbf5ba7d9d0",
+      "referrer": "0x798b550766e9e708eafcd2b21c596453e3eb7256",
+      "note": "Tier3 (5 bets) -> Tier2 #8"
+    },
+    {
+      "referee": "0xb2cdec91d771689bf1bde631f0a56079fadeb7fa",
+      "referrer": "0x85feaa66405c16647f3aebc525137fb271e66a2e",
+      "note": "Tier3 (5 bets) -> Tier2 #9"
+    },
+    {
+      "referee": "0x8e34f2785c441a9b9be1fb40a6e457ab37b70f4b",
+      "referrer": "0x4cc4d14fabbf950de039245ece31c5e1be71d0cb",
+      "note": "Tier3 (4 bets) -> Tier2 #10"
+    },
+    {
+      "referee": "0xdcd71f651ea4729bd399f95d74ca312a10e0464e",
+      "referrer": "0xdecaea559624078a3a0d77430e6477df4e8cb8d3",
+      "note": "Tier3 (4 bets) -> Tier1 #1"
+    },
+    {
+      "referee": "0x5539a731066aebed8dda5d17561a4c58b0e111ec",
+      "referrer": "0xf48eb579acd833e30afcdf43b158c567b3560076",
+      "note": "Tier3 (2 bets) -> Tier1 #2"
+    },
+    {
+      "referee": "0x6c2f96ec346f5b63a006262b1dce72c60acdfc7d",
+      "referrer": "0x222550d049a3834f6f4300c3946480f158846d5e",
+      "note": "Tier3 (2 bets) -> Tier1 #3"
+    },
+    {
+      "referee": "0x7baa994415d245b212d91fca14ee3a6834b77cdb",
+      "referrer": "0x0467674bbf7e540a4954e9905c500c0e55407311",
+      "note": "Tier3 (2 bets) -> Tier1 #4"
+    },
+    {
+      "referee": "0x7f23c8372e1c2572f3d51d9ea79102bb600bb995",
+      "referrer": "0x1a60fdc5eac05cb6a7f11c53fa14b0294d5ec22a",
+      "note": "Tier3 (2 bets) -> Tier1 #5"
+    },
+    {
+      "referee": "0xc17ae115d09f608f2e89c45a90a888e6f2524ab8",
+      "referrer": "0x298739c5d431159d26b7de9e43a8c2e6e74a9063",
+      "note": "Tier3 (2 bets) -> Tier2 #1"
+    },
+    {
+      "referee": "0xd8c566a843184e4b280d7a91dfbb13a6d450eeba",
+      "referrer": "0xd82828e55a100637fb8c98a274c304ae87d29432",
+      "note": "Tier3 (2 bets) -> Tier2 #2"
+    },
+    {
+      "referee": "0xe4ddd21baf660db530f36e3f0a29a3edbfee0ec0",
+      "referrer": "0xa9fe0d47bb1d47904db4e3cad1c0108af2cb6f35",
+      "note": "Tier3 (2 bets) -> Tier2 #3"
+    },
+    {
+      "referee": "0x50b41b3a57b0491235be8dce794904caf9289b98",
+      "referrer": "0x8689d1d8471bf5f97efe9fdd96fa242a596d7b49",
+      "note": "Tier3 (1 bet) -> Tier2 #4"
+    },
+    {
+      "referee": "0x61f0fdb65d93088c20e24723608a029d3d80959f",
+      "referrer": "0x45691f334bf9871a143d284c4c7dcbe8601c8eb6",
+      "note": "Tier3 (1 bet) -> Tier2 #5"
+    },
+    {
+      "referee": "0x655c0c085bd34fb63016b0bdde41bde4736cbae0",
+      "referrer": "0xc4eedea47242617977a77c35fe54f70d7e4bb2f0",
+      "note": "Tier3 (1 bet) -> Tier2 #6"
+    },
+    {
+      "referee": "0x710460adf24529c8aaeb774c0da97e8b4b19cfef",
+      "referrer": "0x8e7fe7f66f30da63bf73e6c066d161102a398b19",
+      "note": "Tier3 (1 bet) -> Tier2 #7"
+    },
+    {
+      "referee": "0x72d8186f6de743721094a45054c07caf2716d09f",
+      "referrer": "0x798b550766e9e708eafcd2b21c596453e3eb7256",
+      "note": "Tier3 (1 bet) -> Tier2 #8"
+    },
+    {
+      "referee": "0xb0d1d1a2f8aebe547a99886831d20d59630d92b7",
+      "referrer": "0x85feaa66405c16647f3aebc525137fb271e66a2e",
+      "note": "Tier3 (1 bet) -> Tier2 #9"
+    },
+    {
+      "referee": "0xbba4ac0ce40ff9db5210746e5cc87b1fb5abbc03",
+      "referrer": "0x4cc4d14fabbf950de039245ece31c5e1be71d0cb",
+      "note": "Tier3 (1 bet) -> Tier2 #10"
+    },
+    {
+      "referee": "0xc025a0e096e32827aa6f900415daaf9deb50120f",
+      "referrer": "0xdecaea559624078a3a0d77430e6477df4e8cb8d3",
+      "note": "Tier3 (1 bet) -> Tier1 #1"
+    },
+    {
+      "referee": "0xc94c6eeffaa7639bf371d60999589335d9e38633",
+      "referrer": "0xf48eb579acd833e30afcdf43b158c567b3560076",
+      "note": "Tier3 (1 bet) -> Tier1 #2"
+    }
+  ],
+  "tier1_root_players": [
+    {
+      "address": "0xdecaea559624078a3a0d77430e6477df4e8cb8d3",
+      "bets": 620,
+      "note": "Tier1 #1 - NO REFERRER (root level)"
+    },
+    {
+      "address": "0xf48eb579acd833e30afcdf43b158c567b3560076",
+      "bets": 331,
+      "note": "Tier1 #2 - NO REFERRER (root level)"
+    },
+    {
+      "address": "0x222550d049a3834f6f4300c3946480f158846d5e",
+      "bets": 296,
+      "note": "Tier1 #3 - NO REFERRER (root level)"
+    },
+    {
+      "address": "0x0467674bbf7e540a4954e9905c500c0e55407311",
+      "bets": 295,
+      "note": "Tier1 #4 - NO REFERRER (root level)"
+    },
+    {
+      "address": "0x1a60fdc5eac05cb6a7f11c53fa14b0294d5ec22a",
+      "bets": 275,
+      "note": "Tier1 #5 - NO REFERRER (root level)"
+    }
+  ],
+  "summary": {
+    "totalRelationships": 72,
+    "tier1_players": 5,
+    "tier2_players": 10,
+    "tier3_players": 57,
+    "playersWithoutReferrer": 5,
+    "excludedZeroBets": 2
+  }
+}
+
+
