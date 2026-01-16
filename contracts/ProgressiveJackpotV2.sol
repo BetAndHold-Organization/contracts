@@ -123,7 +123,7 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     // NEW: Per-tier pot balances
     mapping(uint8 => uint256) public tierPotBalance;
 
-    // NEW: Tier share distribution (sum must = 10000)
+    // NEW: Tier share distribution (sum must = 10000 AFTER consolation share)
     uint16[9] public tierShareBps;
 
     // NEW: Per-tier probability config and state
@@ -133,6 +133,14 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
 
     // NEW: Admin system
     mapping(address => bool) public isAdmin;
+
+    // NEW: Consolation pot (separate from tier pots)
+    uint256 public consolationPotBalance;
+    uint16 public consolationShareBps;      // Share taken off-the-top before tier distribution (e.g., 500 = 5%)
+    
+    // NEW: Configurable consolation probabilities
+    uint16 public consolation1ProbBps;      // Probability for 1.2x consolation (default 1200 = 12%)
+    uint16 public consolation2ProbBps;      // Probability for 1.5x consolation (default 600 = 6%)
 
     // Game registrations
     mapping(address => GameConfig) private gameConfigs;
@@ -193,6 +201,11 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     event TierSharesUpdated(uint16[9] shares);
     event TierPotSeeded(uint8 indexed tierIndex, uint256 amount);
     event AdminFundsDistributed(address indexed admin, uint256 amount);
+    
+    // V2.1 consolation events
+    event ConsolationShareUpdated(uint16 shareBps);
+    event ConsolationProbabilitiesUpdated(uint16 consolation1ProbBps, uint16 consolation2ProbBps);
+    event ConsolationPotSeeded(uint256 amount);
 
     // ═══════════════════════════════════════════════════════════════════════
     // ERRORS
@@ -232,6 +245,11 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
             tierShareBps[i] = 625;
         }
         tierShareBps[8] = 5000;
+        
+        // Default consolation config
+        consolationShareBps = 500;          // 5% off-the-top for consolation pot
+        consolation1ProbBps = 1200;         // 12% chance for 1.2x
+        consolation2ProbBps = 600;          // 6% chance for 1.5x
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -263,6 +281,51 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
 
     function getTierShares() external view returns (uint16[9] memory) {
         return tierShareBps;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONSOLATION CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Set the consolation share (taken off-the-top before tier distribution)
+    /// @param shareBps Share in basis points (e.g., 500 = 5%)
+    function setConsolationShare(uint16 shareBps) external onlyOwner {
+        require(shareBps <= 2000, "Max 20%");  // Sanity check
+        consolationShareBps = shareBps;
+        emit ConsolationShareUpdated(shareBps);
+    }
+
+    /// @notice Set the consolation win probabilities
+    /// @param prob1Bps Probability for 1.2x consolation in bps (e.g., 1200 = 12%)
+    /// @param prob2Bps Probability for 1.5x consolation in bps (e.g., 600 = 6%)
+    function setConsolationProbabilities(uint16 prob1Bps, uint16 prob2Bps) external onlyOwner {
+        require(prob1Bps + prob2Bps <= 5000, "Total > 50%");  // Sanity check
+        consolation1ProbBps = prob1Bps;
+        consolation2ProbBps = prob2Bps;
+        emit ConsolationProbabilitiesUpdated(prob1Bps, prob2Bps);
+    }
+
+    /// @notice Get consolation configuration
+    function getConsolationConfig() external view returns (
+        uint256 potBalance,
+        uint16 shareBps,
+        uint16 prob1Bps,
+        uint16 prob2Bps
+    ) {
+        return (
+            consolationPotBalance,
+            consolationShareBps,
+            consolation1ProbBps,
+            consolation2ProbBps
+        );
+    }
+
+    /// @notice Seed the consolation pot directly
+    function seedConsolationPot(uint256 amount) external onlyOwner nonReentrant {
+        require(amount > 0, "Amount must be positive");
+        evaToken.safeTransferFrom(msg.sender, address(this), amount);
+        consolationPotBalance += amount;
+        emit ConsolationPotSeeded(amount);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -427,8 +490,14 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     }
 
     function _distributeFunds(uint256 amount) internal {
+        // 1. Take consolation share off the top
+        uint256 consolationAmount = (amount * consolationShareBps) / 10_000;
+        consolationPotBalance += consolationAmount;
+        
+        // 2. Distribute remainder to tier pots
+        uint256 remaining = amount - consolationAmount;
         for (uint8 i = 0; i < TIER_COUNT; i++) {
-            uint256 share = (amount * tierShareBps[i]) / 10_000;
+            uint256 share = (remaining * tierShareBps[i]) / 10_000;
             tierPotBalance[i] += share;
         }
     }
@@ -844,12 +913,12 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         revert InvalidProbabilityTable();
     }
 
-    function _getConsolationProbability(uint8 outcomeIndex) internal pure returns (uint16) {
-        // Fixed consolation probabilities
-        // Outcome 1: 12% (1200 bps) for 1.2x
-        // Outcome 2: 6% (600 bps) for 1.5x
-        if (outcomeIndex == 1) return 1200;
-        if (outcomeIndex == 2) return 600;
+    function _getConsolationProbability(uint8 outcomeIndex) internal view returns (uint16) {
+        // Configurable consolation probabilities
+        // Outcome 1: 1.2x consolation
+        // Outcome 2: 1.5x consolation
+        if (outcomeIndex == 1) return consolation1ProbBps;
+        if (outcomeIndex == 2) return consolation2ProbBps;
         return 0;
     }
 
@@ -875,15 +944,14 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         if (outcome.consolationMultiplier > 0) {
             payout = (betAmount * outcome.consolationMultiplier) / 10_000;
             
-            // Cap consolation to available funds (graceful degradation)
-            uint256 available = tierPotBalance[tierIndex];
-            if (payout > available) {
-                payout = available;
+            // Cap consolation to available funds in consolation pot (graceful degradation)
+            if (payout > consolationPotBalance) {
+                payout = consolationPotBalance;
             }
             
-            // Pay from CURRENT tier's pot
+            // Pay from CONSOLATION pot (separate from tier pots)
             if (payout > 0) {
-                tierPotBalance[tierIndex] -= payout;
+                consolationPotBalance -= payout;
                 evaToken.safeTransfer(player, payout);
                 state.totalConsolationPaid += payout;
                 emit ConsolationPaid(player, payout, outcome.consolationMultiplier);
@@ -1045,6 +1113,9 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         for (uint8 i = 0; i < TIER_COUNT; i++) {
             tierPotBalance[i] = 0;
         }
+        
+        // Reset consolation pot balance to zero
+        consolationPotBalance = 0;
         
         evaToken.safeTransfer(to, amt);
     }

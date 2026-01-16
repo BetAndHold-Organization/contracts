@@ -1,0 +1,56 @@
+{
+  "version": "V4",
+  "deployedAt": "2026-01-16T17:41:10.441Z",
+  "token": "0x45D9831d8751B2325f3DBf48db748723726e1C8c",
+  "randomProvider": "0xc7b8e1c6baf325799f7e536fbe6c7eee65256d47",
+  "handler": "0xce9f2e4586d674162610daec693ae9b1083c11d4",
+  "referral": "0xd64a1b0b213877cde3f9b4a0fa93bffa4878a71b",
+  "jackpot": "0x55c4bb3b11dbdb048a06b3442ac4757b57ca6874",
+  "roulette": "0xb3f60ca15dea4434fa7bc364563ac1f05d4ac142",
+  "house": "0x8248f7b7f7cb8fa51db9138b42a6bb7af1721e9e",
+  "fallback": "0x8248f7b7f7cb8fa51db9138b42a6bb7af1721e9e",
+  "deployer": "0xc8e31828f454f5d75b44c1c6d78641584b8c898c",
+  "config": {
+    "tierShares": [
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      2000
+    ],
+    "tierCosts": [
+      "500000000000000000",
+      "500000000000000000",
+      "500000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "2000000000000000000",
+      "2000000000000000000",
+      "3000000000000000000"
+    ],
+    "probMin": 10,
+    "probMax": 500,
+    "probIncrement": 3,
+    "consolationShareBps": 500,
+    "consolation1ProbBps": 500,
+    "consolation2ProbBps": 200,
+    "minWager": "100000000000000000",
+    "maxWager": "3000000000000000000",
+    "jackpotContribBps": 350,
+    "replayBps": 500,
+    "jackpotBps": 300,
+    "jackpotScaling": "DISABLED"
+  },
+  "changes": [
+    "Jackpot trigger: 3% FIXED (was 5%-20% scaling)",
+    "Tier probability max: 5% (was 20%)",
+    "Consolation probabilities: 5%/2% (was 12%/6%)",
+    "Separate consolation pot (5% of all funds)",
+    "More balanced house edge throughout tier progression"
+  ]
+}
