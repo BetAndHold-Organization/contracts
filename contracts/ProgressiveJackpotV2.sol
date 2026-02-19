@@ -563,6 +563,19 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         }
     }
 
+    /// @notice Register a game that can only add funds (cannot process jackpot entries)
+    /// @dev The game can call addFunds() but processJackpotEntry() will revert with GameDisabled
+    function registerFundOnlyGame(address game) external onlyOwner {
+        if (game == address(0)) revert InvalidGame(game);
+        
+        if (!registeredGames[game]) {
+            registeredGames[game] = true;
+            gameList.push(game);
+            emit GameRegistered(game);
+        }
+        // cfg.enabled stays false, blocking processJackpotEntry()
+    }
+
     function setGameStatus(address game, bool enabled) external onlyOwner {
         if (!registeredGames[game]) revert InvalidGame(game);
         gameConfigs[game].enabled = enabled;

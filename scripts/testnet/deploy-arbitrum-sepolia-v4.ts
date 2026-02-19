@@ -7,7 +7,7 @@ import "dotenv/config";
 type Addr = `0x${string}`;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CONFIGURATION V4
+// CONFIGURATION V4 (Mirrors mainnet V4 exactly)
 // ═══════════════════════════════════════════════════════════════════════════
 
 const REFERRAL_LADDER = [7_000, 1_200, 900, 600, 300] as const;
@@ -15,7 +15,7 @@ const HOUSE_EDGE_BPS = 200;       // 2%
 const REFERRAL_BPS = 200;         // 2%
 const VERIFY = true;
 
-// Roulette config
+// Roulette config (V4 - fixed 3% jackpot)
 const MIN_WAGER = parseEther("0.1");
 const MAX_WAGER = parseEther("3");
 const JACKPOT_CONTRIB_BPS = 350;  // 3.5% of net stake
@@ -23,24 +23,24 @@ const REPLAY_BPS = 500;           // 5% replay chance
 const JACKPOT_BPS = 300;          // 3% FIXED jackpot chance (no scaling)
 
 // Jackpot V2 config
-const JACKPOT_START = 0n;  // Will be funded manually after deployment
+const JACKPOT_START = parseEther("100");  // Initial funding for testnet
 
 // Tier share distribution (must sum to 10000)
 // 10% each for tiers 0-7, 20% for tier 8
 const TIER_SHARES: readonly [number, number, number, number, number, number, number, number, number] = 
   [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 2000];
 
-// Probability config for all tiers (entry-based scaling)
+// Probability config for all tiers (entry-based scaling) - V4 values
 const PROB_MIN_BPS = 10;           // 0.1% starting probability
-const PROB_MAX_BPS = 500;          // 5% max probability (was 20%)
+const PROB_MAX_BPS = 500;          // 5% max probability (V4 change from 20%)
 const PROB_INCREMENT_BPS = 3;      // 0.03% increase per entry
 
-// Consolation config
+// Consolation config (NEW in V4)
 const CONSOLATION_SHARE_BPS = 500;  // 5% off-the-top for consolation pot
-const CONSOLATION_1_PROB_BPS = 500; // 5% chance for 1.2x (was 12%)
-const CONSOLATION_2_PROB_BPS = 200; // 2% chance for 1.5x (was 6%)
+const CONSOLATION_1_PROB_BPS = 500; // 5% chance for 1.2x
+const CONSOLATION_2_PROB_BPS = 200; // 2% chance for 1.5x
 
-// Fixed costs per tier in EVA
+// Fixed costs per tier in EVA/TRT
 const TIER_COSTS = [
   parseEther("0.5"),   // Tier 0
   parseEther("0.5"),   // Tier 1
@@ -97,17 +97,16 @@ async function verifyWithRetryCli(networkName: string, address: Addr, args: any[
 
 function buildTierLadderV2() {
   return Array.from({ length: 9 }, (_, index) => ({
-    prizeMetric: 0n,                      // Unused in V2 (prize = pot balance)
-    isTerminal: index === 8,              // Tier 9 is terminal
-    isPercent: false,                     // Unused in V2
-    fixedBetCost: TIER_COSTS[index],      // Fixed cost per tier
-    useDynamicCost: false,                // Always false in V2
-    costBps: 0,                           // Unused in V2
+    prizeMetric: 0n,
+    isTerminal: index === 8,
+    isPercent: false,
+    fixedBetCost: TIER_COSTS[index],
+    useDynamicCost: false,
+    costBps: 0,
   }));
 }
 
 function buildJackpotOutcomes() {
-  // Outcomes for jackpot: [lose, cons1, cons2, tier0, tier1, ..., tier8]
   const outcomes: Array<{
     enabled: boolean;
     tierAdvance: number;
@@ -130,7 +129,7 @@ function buildJackpotOutcomes() {
     enabled: true,
     tierAdvance: 0,
     tierResetTo: 0,
-    consolationMultiplier: 12000, // 1.2x in bps
+    consolationMultiplier: 12000,
     awardsTier: false,
   });
 
@@ -139,11 +138,11 @@ function buildJackpotOutcomes() {
     enabled: true,
     tierAdvance: 0,
     tierResetTo: 0,
-    consolationMultiplier: 15000, // 1.5x in bps
+    consolationMultiplier: 15000,
     awardsTier: false,
   });
 
-  // Outcomes 3-11: Tier awards (tier 0 through tier 8)
+  // Outcomes 3-11: Tier awards
   for (let tier = 0; tier < 9; tier++) {
     const isTerminal = tier === 8;
     outcomes.push({
@@ -163,44 +162,36 @@ function buildJackpotOutcomes() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function main() {
-  const VRF_COORDINATOR = (process.env.MAINNET_VRF_COORDINATOR || "").trim() as Addr | undefined;
-  const VRF_KEY_HASH = (process.env.MAINNET_VRF_KEY_HASH || "").trim() as Addr | undefined;
-  const VRF_SUBSCRIPTION_ID_STR = (process.env.MAINNET_VRF_SUBSCRIPTION_ID || "").trim();
-  const TOKEN_ADDRESS_ENV_RAW = (process.env.MAINNET_TOKEN_ADDRESS || "").trim();
-  const TOKEN_ADDRESS_ENV = TOKEN_ADDRESS_ENV_RAW.length > 0 ? (TOKEN_ADDRESS_ENV_RAW as Addr) : undefined;
+  const VRF_COORDINATOR = (process.env.VRF_COORDINATOR || "").trim() as Addr | undefined;
+  const VRF_KEY_HASH = (process.env.VRF_KEY_HASH || "").trim() as Addr | undefined;
+  const VRF_SUBSCRIPTION_ID_STR = (process.env.VRF_SUBSCRIPTION_ID || "").trim();
 
   if (!VRF_COORDINATOR || !VRF_KEY_HASH || !VRF_SUBSCRIPTION_ID_STR) {
-    throw new Error("Missing VRF env: MAINNET_VRF_COORDINATOR, MAINNET_VRF_KEY_HASH, MAINNET_VRF_SUBSCRIPTION_ID");
-  }
-  if (!TOKEN_ADDRESS_ENV) {
-    throw new Error("Missing MAINNET_TOKEN_ADDRESS - this script reuses existing token");
+    throw new Error("Missing VRF env: VRF_COORDINATOR, VRF_KEY_HASH, VRF_SUBSCRIPTION_ID");
   }
 
   const VRF_SUBSCRIPTION_ID = BigInt(VRF_SUBSCRIPTION_ID_STR);
-  const tokenAddress = TOKEN_ADDRESS_ENV;
-  
-  // House and referral fallback wallet (same as previous versions)
-  const HOUSE_FALLBACK_WALLET = "0x8248f7b7f7cb8fa51db9138b42a6bb7af1721e9e" as Addr;
 
   const conn = await network.connect();
   const viem = conn.viem;
   const [deployer] = await viem.getWalletClients();
-  const networkName = network.name;
+  const networkName = "arbitrumSepolia";
+
+  const HOUSE_FALLBACK_WALLET = deployer.account.address;
 
   console.log("╔══════════════════════════════════════════════════════════════════╗");
-  console.log("║              ARBITRUM V4 DEPLOYMENT                              ║");
-  console.log("║      Balanced Jackpot Economics + Consolation Pot                ║");
+  console.log("║         ARBITRUM SEPOLIA V4 DEPLOYMENT                           ║");
+  console.log("║   Mirrors Mainnet V4 Configuration Exactly                       ║");
   console.log("╚══════════════════════════════════════════════════════════════════╝");
   console.log("");
   console.log("Network:", networkName);
   console.log("Deployer:", deployer.account.address);
-  console.log("Token (reusing):", tokenAddress);
   console.log("House/Fallback:", HOUSE_FALLBACK_WALLET);
   console.log("");
-  console.log("📊 Key Configuration Changes:");
-  console.log("   • Jackpot trigger: 3% FIXED (was 5%-20% scaling)");
-  console.log("   • Tier probability: 0.1% → 5% max (was 20%)");
-  console.log("   • Consolations: 5%/2% (was 12%/6%)");
+  console.log("📊 V4 Configuration (same as mainnet):");
+  console.log("   • Jackpot trigger: 3% FIXED");
+  console.log("   • Tier probability: 0.1% → 5% max");
+  console.log("   • Consolations: 5%/2%");
   console.log("   • Separate consolation pot (5% of funds)");
   console.log("");
 
@@ -208,10 +199,19 @@ async function main() {
   let tx: Addr;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 1. RANDOM PROVIDER V2
+  // 1. TOKEN (TRT - TestRouletteToken)
   // ─────────────────────────────────────────────────────────────────────────
   console.log("═══════════════════════════════════════════════════════════════════");
-  console.log("1. Deploying RandomProviderV2...");
+  console.log("1. Deploying EverValueCoin (TRT)...");
+  
+  const token = await viem.deployContract("EverValueCoin");
+  console.log("   ✓ Token (TRT):", token.address);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 2. RANDOM PROVIDER V2
+  // ─────────────────────────────────────────────────────────────────────────
+  console.log("\n═══════════════════════════════════════════════════════════════════");
+  console.log("2. Deploying RandomProviderV2...");
   
   const randomProvider = await viem.deployContract("RandomProviderV2", [VRF_COORDINATOR]);
   console.log("   ✓ RandomProviderV2:", randomProvider.address);
@@ -250,24 +250,23 @@ async function main() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 2. PAYMENT HANDLER
+  // 3. PAYMENT HANDLER
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n═══════════════════════════════════════════════════════════════════");
-  console.log("2. Deploying PaymentHandler...");
+  console.log("3. Deploying PaymentHandler...");
 
-  const handler = await viem.deployContract("PaymentHandler", [tokenAddress]);
+  const handler = await viem.deployContract("PaymentHandler", [token.address]);
   console.log("   ✓ PaymentHandler:", handler.address);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 3. REFERRAL SYSTEM
+  // 4. REFERRAL SYSTEM
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n═══════════════════════════════════════════════════════════════════");
-  console.log("3. Deploying MultiLevelReferral...");
+  console.log("4. Deploying MultiLevelReferral...");
 
-  const referral = await viem.deployContract("MultiLevelReferral", [tokenAddress, HOUSE_FALLBACK_WALLET]);
+  const referral = await viem.deployContract("MultiLevelReferral", [token.address, HOUSE_FALLBACK_WALLET]);
   console.log("   ✓ MultiLevelReferral:", referral.address);
 
-  // Wire handler and referral
   tx = await handler.write.setReferralContract([referral.address], { account: deployer.account });
   await publicClient.waitForTransactionReceipt({ hash: tx });
   
@@ -285,12 +284,12 @@ async function main() {
   console.log("   ✓ Referral configured (whitelist disabled)");
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 4. PROGRESSIVE JACKPOT V2
+  // 5. PROGRESSIVE JACKPOT V2
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n═══════════════════════════════════════════════════════════════════");
-  console.log("4. Deploying ProgressiveJackpotV2...");
+  console.log("5. Deploying ProgressiveJackpotV2...");
 
-  const jackpot = await viem.deployContract("ProgressiveJackpotV2", [tokenAddress, randomProvider.address]);
+  const jackpot = await viem.deployContract("ProgressiveJackpotV2", [token.address, randomProvider.address]);
   console.log("   ✓ ProgressiveJackpotV2:", jackpot.address);
 
   // Set tier shares
@@ -304,7 +303,7 @@ async function main() {
   await publicClient.waitForTransactionReceipt({ hash: tx });
   console.log("   ✓ Tier ladder configured");
 
-  // Set probability config for all tiers
+  // Set probability config for all tiers (V4 values)
   tx = await jackpot.write.setAllTierProbConfigs(
     [PROB_MIN_BPS, PROB_MAX_BPS, PROB_INCREMENT_BPS],
     { account: deployer.account }
@@ -312,7 +311,7 @@ async function main() {
   await publicClient.waitForTransactionReceipt({ hash: tx });
   console.log("   ✓ Probability config set (min:", PROB_MIN_BPS, "max:", PROB_MAX_BPS, "incr:", PROB_INCREMENT_BPS, ")");
 
-  // Set consolation configuration (NEW in V4)
+  // Set consolation configuration (V4 feature)
   tx = await jackpot.write.setConsolationShare([CONSOLATION_SHARE_BPS], { account: deployer.account });
   await publicClient.waitForTransactionReceipt({ hash: tx });
   console.log("   ✓ Consolation share set:", CONSOLATION_SHARE_BPS, "bps (", CONSOLATION_SHARE_BPS / 100, "%)");
@@ -341,15 +340,15 @@ async function main() {
   console.log("   ✓ Direct fallback set");
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 5. SINGLE RANDOM ROULETTE V2
+  // 6. SINGLE RANDOM ROULETTE V2
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n═══════════════════════════════════════════════════════════════════");
-  console.log("5. Deploying SingleRandomRouletteV2...");
+  console.log("6. Deploying SingleRandomRouletteV2...");
 
   const roulette = await viem.deployContract("SingleRandomRouletteV2", [
     handler.address,
     randomProvider.address,
-    tokenAddress,
+    token.address,
   ]);
   console.log("   ✓ SingleRandomRouletteV2:", roulette.address);
 
@@ -358,14 +357,14 @@ async function main() {
   await publicClient.waitForTransactionReceipt({ hash: tx });
   console.log("   ✓ Jackpot linked");
 
-  // Configure table (3% FIXED jackpot chance)
+  // Configure table (V4 - 3% FIXED jackpot chance)
   const tableConfig = {
     enabled: true,
     replayBps: REPLAY_BPS,
     jackpotBps: JACKPOT_BPS,           // 3% fixed
     jackpotContributionBps: JACKPOT_CONTRIB_BPS,
-    minMultiplier: 101,   // 1.01x minimum
-    maxMultiplier: 10000, // 100x maximum
+    minMultiplier: 101,
+    maxMultiplier: 10000,
     minWager: MIN_WAGER,
     maxWager: MAX_WAGER,
   };
@@ -375,7 +374,7 @@ async function main() {
 
   // DISABLE jackpot scaling (V4 change - fixed 3% regardless of wager)
   const scalingConfig = {
-    enabled: false,        // DISABLED - use fixed jackpotBps
+    enabled: false,
     minJackpotBps: 0,
     maxJackpotBps: 0,
     minJackpotWager: 0n,
@@ -388,12 +387,11 @@ async function main() {
   console.log("   ✓ Jackpot scaling DISABLED (fixed 3%)");
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 6. REGISTER GAMES IN PAYMENT HANDLER
+  // 7. REGISTER GAMES IN PAYMENT HANDLER
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n═══════════════════════════════════════════════════════════════════");
-  console.log("6. Registering games in PaymentHandler...");
+  console.log("7. Registering games in PaymentHandler...");
 
-  // Register roulette
   tx = await handler.write.registerGame(
     [roulette.address, roulette.address, HOUSE_FALLBACK_WALLET, HOUSE_EDGE_BPS, REFERRAL_BPS],
     { account: deployer.account }
@@ -404,7 +402,6 @@ async function main() {
   await publicClient.waitForTransactionReceipt({ hash: tx });
   console.log("   ✓ Roulette registered & enabled");
 
-  // Register jackpot
   tx = await handler.write.registerGame(
     [jackpot.address, jackpot.address, HOUSE_FALLBACK_WALLET, HOUSE_EDGE_BPS, REFERRAL_BPS],
     { account: deployer.account }
@@ -416,10 +413,10 @@ async function main() {
   console.log("   ✓ Jackpot registered & enabled");
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 7. REGISTER GAMES IN RANDOM PROVIDER V2
+  // 8. REGISTER GAMES IN RANDOM PROVIDER V2
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n═══════════════════════════════════════════════════════════════════");
-  console.log("7. Registering consumers in RandomProviderV2...");
+  console.log("8. Registering consumers in RandomProviderV2...");
 
   tx = await randomProvider.write.setConsumerStatus(
     [roulette.address, true, CONSUMER_RANGE_LIMIT],
@@ -436,10 +433,10 @@ async function main() {
   console.log("   ✓ Jackpot registered (maxRanges:", CONSUMER_RANGE_LIMIT, ")");
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 8. REGISTER ROULETTE IN JACKPOT
+  // 9. REGISTER ROULETTE IN JACKPOT
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n═══════════════════════════════════════════════════════════════════");
-  console.log("8. Registering Roulette in Jackpot...");
+  console.log("9. Registering Roulette in Jackpot...");
 
   tx = await jackpot.write.registerGame([roulette.address, jackpotOutcomes], { account: deployer.account });
   await publicClient.waitForTransactionReceipt({ hash: tx });
@@ -453,24 +450,52 @@ async function main() {
   console.log("   ✓ Game fallback set");
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 9. FUND JACKPOT (if configured)
+  // 10. PAYMENT ONLY GAME ADAPTER
   // ─────────────────────────────────────────────────────────────────────────
-  if (JACKPOT_START > 0n) {
-    console.log("\n═══════════════════════════════════════════════════════════════════");
-    console.log("9. Funding Jackpot...");
+  console.log("\n═══════════════════════════════════════════════════════════════════");
+  console.log("10. Deploying PaymentOnlyGameAdapter...");
 
-    const token = await viem.getContractAt("EverValueCoin", tokenAddress);
-    
-    // Approve jackpot to spend tokens
-    tx = await token.write.approve([jackpot.address, JACKPOT_START], { account: deployer.account });
-    await publicClient.waitForTransactionReceipt({ hash: tx });
-    console.log("   ✓ Approved", JACKPOT_START.toString(), "tokens");
+  const adapter = await viem.deployContract("PaymentOnlyGameAdapter", [token.address, handler.address]);
+  console.log("   ✓ PaymentOnlyGameAdapter:", adapter.address);
 
-    // Admin add funds (distributes to all tier pots + consolation pot)
-    tx = await jackpot.write.adminAddFunds([JACKPOT_START], { account: deployer.account });
-    await publicClient.waitForTransactionReceipt({ hash: tx });
-    console.log("   ✓ Funded jackpot with", JACKPOT_START.toString(), "tokens");
-  }
+  tx = await handler.write.registerGame(
+    [adapter.address, adapter.address, HOUSE_FALLBACK_WALLET, HOUSE_EDGE_BPS, REFERRAL_BPS],
+    { account: deployer.account }
+  );
+  await publicClient.waitForTransactionReceipt({ hash: tx });
+  
+  tx = await handler.write.setGameStatus([adapter.address, true], { account: deployer.account });
+  await publicClient.waitForTransactionReceipt({ hash: tx });
+  console.log("   ✓ Adapter registered & enabled in PaymentHandler");
+
+  // Fund adapter
+  tx = await token.write.transfer([adapter.address, parseEther("500")], { account: deployer.account });
+  await publicClient.waitForTransactionReceipt({ hash: tx });
+  console.log("   ✓ Funded adapter with 500 TRT liquidity");
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 11. SEED BALANCES
+  // ─────────────────────────────────────────────────────────────────────────
+  console.log("\n═══════════════════════════════════════════════════════════════════");
+  console.log("11. Seeding balances...");
+
+  // Approve and fund jackpot
+  tx = await token.write.approve([jackpot.address, JACKPOT_START], { account: deployer.account });
+  await publicClient.waitForTransactionReceipt({ hash: tx });
+  
+  tx = await jackpot.write.adminAddFunds([JACKPOT_START], { account: deployer.account });
+  await publicClient.waitForTransactionReceipt({ hash: tx });
+  console.log("   ✓ Funded jackpot with", JACKPOT_START.toString(), "tokens");
+
+  // Fund roulette liquidity
+  tx = await token.write.transfer([roulette.address, parseEther("1000")], { account: deployer.account });
+  await publicClient.waitForTransactionReceipt({ hash: tx });
+  console.log("   ✓ Funded roulette with 1000 TRT liquidity");
+
+  // Approve handler for testing
+  tx = await token.write.approve([handler.address, parseEther("100000")], { account: deployer.account });
+  await publicClient.waitForTransactionReceipt({ hash: tx });
+  console.log("   ✓ Approved handler for 100,000 TRT");
 
   // ─────────────────────────────────────────────────────────────────────────
   // SAVE DEPLOYMENT
@@ -481,12 +506,14 @@ async function main() {
   const deployment = {
     version: "V4",
     deployedAt: new Date().toISOString(),
-    token: tokenAddress,
+    network: networkName,
+    token: token.address,
     randomProvider: randomProvider.address,
     handler: handler.address,
     referral: referral.address,
     jackpot: jackpot.address,
     roulette: roulette.address,
+    adapter: adapter.address,
     house: HOUSE_FALLBACK_WALLET,
     fallback: HOUSE_FALLBACK_WALLET,
     deployer: deployer.account.address,
@@ -506,30 +533,29 @@ async function main() {
       jackpotBps: JACKPOT_BPS,
       jackpotScaling: "DISABLED",
     },
-    changes: [
-      "Jackpot trigger: 3% FIXED (was 5%-20% scaling)",
-      "Tier probability max: 5% (was 20%)",
-      "Consolation probabilities: 5%/2% (was 12%/6%)",
-      "Separate consolation pot (5% of all funds)",
-      "More balanced house edge throughout tier progression",
-    ],
+    mirrorsMainnet: true,
   };
 
-  const deploymentPath = `scripts/mainnet/deployments/arb-mainnet-v4.json`;
+  const deploymentsDir = new URL("./deployments/", import.meta.url);
+  await fs.mkdir(deploymentsDir, { recursive: true });
+  const deploymentPath = new URL("arb-sepolia-v4.json", deploymentsDir);
   await fs.writeFile(deploymentPath, JSON.stringify(deployment, null, 2));
-  console.log("   ✓ Saved to", deploymentPath);
+  console.log("   ✓ Saved to", deploymentPath.pathname);
 
   // ─────────────────────────────────────────────────────────────────────────
   // VERIFICATION
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n═══════════════════════════════════════════════════════════════════");
-  console.log("Starting verification...");
+  console.log("Starting verification (waiting 30s for indexing)...");
+  await new Promise((r) => setTimeout(r, 30_000));
 
+  await verifyWithRetryCli(networkName, token.address, []);
   await verifyWithRetryCli(networkName, randomProvider.address, [VRF_COORDINATOR]);
-  await verifyWithRetryCli(networkName, handler.address, [tokenAddress]);
-  await verifyWithRetryCli(networkName, referral.address, [tokenAddress, HOUSE_FALLBACK_WALLET]);
-  await verifyWithRetryCli(networkName, jackpot.address, [tokenAddress, randomProvider.address]);
-  await verifyWithRetryCli(networkName, roulette.address, [handler.address, randomProvider.address, tokenAddress]);
+  await verifyWithRetryCli(networkName, handler.address, [token.address]);
+  await verifyWithRetryCli(networkName, referral.address, [token.address, HOUSE_FALLBACK_WALLET]);
+  await verifyWithRetryCli(networkName, jackpot.address, [token.address, randomProvider.address]);
+  await verifyWithRetryCli(networkName, roulette.address, [handler.address, randomProvider.address, token.address]);
+  await verifyWithRetryCli(networkName, adapter.address, [token.address, handler.address]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // SUMMARY
@@ -539,31 +565,29 @@ async function main() {
   console.log("╚══════════════════════════════════════════════════════════════════╝");
   console.log("");
   console.log("📋 Contract Addresses:");
-  console.log("   Token (reused):     ", tokenAddress);
-  console.log("   RandomProviderV2:   ", randomProvider.address);
-  console.log("   PaymentHandler:     ", handler.address);
-  console.log("   MultiLevelReferral: ", referral.address);
-  console.log("   ProgressiveJackpotV2:", jackpot.address);
+  console.log("   Token (TRT):          ", token.address);
+  console.log("   RandomProviderV2:     ", randomProvider.address);
+  console.log("   PaymentHandler:       ", handler.address);
+  console.log("   MultiLevelReferral:   ", referral.address);
+  console.log("   ProgressiveJackpotV2: ", jackpot.address);
   console.log("   SingleRandomRouletteV2:", roulette.address);
+  console.log("   PaymentOnlyGameAdapter:", adapter.address);
   console.log("");
-  console.log("🔧 Key Changes in V4:");
-  console.log("   • Jackpot trigger: 3% FIXED (no more wager scaling)");
+  console.log("🔧 V4 Configuration (mirrors mainnet):");
+  console.log("   • Token: TRT (TestRouletteToken)");
+  console.log("   • Jackpot trigger: 3% FIXED");
   console.log("   • Tier probability: 0.1% → 5% max (+0.03% per entry)");
   console.log("   • Consolation prizes: 5% for 1.2x, 2% for 1.5x");
-  console.log("   • Consolation pot: 5% of all funds (separate from tier pots)");
-  console.log("   • Break-even at ~182 entries, expected win at ~183 entries");
+  console.log("   • Consolation pot: 5% of all funds");
   console.log("");
-  console.log("📊 Economics Summary:");
-  console.log("   • Consolation EV: 9% of bet (was 23.4%)");
-  console.log("   • House maintains edge through most of tier progression");
-  console.log("   • Probability caps at 5% after ~163 entries");
+  console.log("💰 Initial Funding:");
+  console.log("   • Jackpot: 100 TRT");
+  console.log("   • Roulette: 1000 TRT");
+  console.log("   • Adapter: 500 TRT");
   console.log("");
-  console.log("⚠️  Next Steps:");
-  console.log("   1. Update client to use new contract addresses");
-  console.log("   2. Update The Graph subgraph (if needed)");
-  console.log("   3. Fund roulette with liquidity");
-  console.log("   4. Fund jackpot (tier pots + consolation pot)");
-  console.log("   5. Seed referrals if needed");
+  console.log("⚠️  VRF Note:");
+  console.log("   If VRF consumer registration failed, manually add");
+  console.log("   RandomProviderV2 as consumer in Chainlink VRF dashboard");
 }
 
 main()
@@ -572,5 +596,3 @@ main()
     console.error(error);
     process.exit(1);
   });
-
-

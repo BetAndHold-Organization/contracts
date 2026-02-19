@@ -1,0 +1,52 @@
+{
+  "version": "V4",
+  "deployedAt": "2026-02-19T18:27:42.500Z",
+  "network": "arbitrumSepolia",
+  "token": "0xebeefd91d2eaf659c954fad05c0cf6e46d043b9a",
+  "randomProvider": "0xb03e82d0cfa3f7ee961cd2ca03e3337169f7af57",
+  "handler": "0x08a68522c14f7a47706c8b6aceccf821426a3a53",
+  "referral": "0xee090893ca509988d31eeeb01e008e3555546790",
+  "jackpot": "0xedd4e7a2b4f461b90a4c21c72a2a1cbd651d4e3b",
+  "roulette": "0xbf7a6c2246a0f1994a6d0b5203cea55a2ff229d2",
+  "adapter": "0xbb8bcf2be6ee8e88022fb7cb244cdff00a95e58a",
+  "house": "0x305ed0b238f108e671a769436f7ac9b13ee66942",
+  "fallback": "0x305ed0b238f108e671a769436f7ac9b13ee66942",
+  "deployer": "0x305ed0b238f108e671a769436f7ac9b13ee66942",
+  "config": {
+    "tierShares": [
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      2000
+    ],
+    "tierCosts": [
+      "500000000000000000",
+      "500000000000000000",
+      "500000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "2000000000000000000",
+      "2000000000000000000",
+      "3000000000000000000"
+    ],
+    "probMin": 10,
+    "probMax": 500,
+    "probIncrement": 3,
+    "consolationShareBps": 500,
+    "consolation1ProbBps": 500,
+    "consolation2ProbBps": 200,
+    "minWager": "100000000000000000",
+    "maxWager": "3000000000000000000",
+    "jackpotContribBps": 350,
+    "replayBps": 500,
+    "jackpotBps": 300,
+    "jackpotScaling": "DISABLED"
+  },
+  "mirrorsMainnet": true
+}
