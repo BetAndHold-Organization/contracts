@@ -1,0 +1,51 @@
+{
+  "version": "V5",
+  "deployedAt": "2026-04-08T00:22:57.970Z",
+  "network": "arbitrumSepolia",
+  "token": "0xf8016254946a35e7069bcc2554fb33124cf50006",
+  "randomProvider": "0xc1d49c3de3de1950f5a9015dfc135a33a9aef19c",
+  "handler": "0x679dd93cbe6c43909c1d787a82f015182d1b1cd7",
+  "referral": "0x0508267910f50bca18fa9862e42bc814c5966ddb",
+  "jackpot": "0xd619e56e03553b71d1363f469b79e95e333213f8",
+  "roulette": "0xb20c813159504965f5090bf810a557f0d4fffeb0",
+  "house": "0x305ed0b238f108e671a769436f7ac9b13ee66942",
+  "deployer": "0x305ed0b238f108e671a769436f7ac9b13ee66942",
+  "notes": "Base contracts (BaseGame/VRFGameBase/JackpotClient) + new payment flow (player->game->handler)",
+  "config": {
+    "tierShares": [
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      2000
+    ],
+    "tierCosts": [
+      "500000000000000000",
+      "500000000000000000",
+      "500000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "2000000000000000000",
+      "2000000000000000000",
+      "3000000000000000000"
+    ],
+    "probabilityPrecision": 1000000,
+    "probMinPpm": 1000,
+    "probMaxPpm": 50000,
+    "probIncrementPpm": 300,
+    "consolationShareBps": 500,
+    "consolation1ProbPpm": 50000,
+    "consolation2ProbPpm": 20000,
+    "minWager": "100000000000000000",
+    "maxWager": "3000000000000000000",
+    "jackpotContribBps": 350,
+    "replayBps": 500,
+    "jackpotBps": 300,
+    "jackpotScaling": "DISABLED"
+  }
+}

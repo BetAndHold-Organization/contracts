@@ -35,7 +35,7 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     // CONSTANTS
     // ═══════════════════════════════════════════════════════════════════════
     
-    uint256 public constant PROBABILITY_PRECISION = 10_000; // basis points
+    uint256 public constant PROBABILITY_PRECISION = 1_000_000; // parts-per-million (0.0001% granularity)
     uint256 public constant MAX_ENTRIES = 64;
     uint8 public constant TIER_COUNT = 9;
     uint8 private constant FIRST_TIER_OFFSET = 3; // outcomes[3] is tier 0, outcomes[4] is tier 1, ...
@@ -74,11 +74,11 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         uint16 costBps;          // Unused in V2
     }
 
-    // NEW: Probability configuration per tier
+    // NEW: Probability configuration per tier (units in parts-per-million)
     struct TierProbConfig {
-        uint16 minProbBps;       // Starting probability (e.g., 20 = 0.2%)
-        uint16 maxProbBps;       // Max probability (e.g., 2000 = 20%)
-        uint16 incrementBps;     // Increase per entry (e.g., 4 = 0.04%)
+        uint32 minProbPpm;       // Starting probability (e.g., 1000 = 0.1%)
+        uint32 maxProbPpm;       // Max probability (e.g., 50000 = 5%)
+        uint32 incrementPpm;     // Increase per entry (e.g., 30 = 0.003%)
     }
 
     // V1-compatible OutcomeConfig
@@ -139,8 +139,8 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     uint16 public consolationShareBps;      // Share taken off-the-top before tier distribution (e.g., 500 = 5%)
     
     // NEW: Configurable consolation probabilities
-    uint16 public consolation1ProbBps;      // Probability for 1.2x consolation (default 1200 = 12%)
-    uint16 public consolation2ProbBps;      // Probability for 1.5x consolation (default 600 = 6%)
+    uint32 public consolation1ProbPpm;      // Probability for 1.2x consolation in ppm (e.g., 50000 = 5%)
+    uint32 public consolation2ProbPpm;      // Probability for 1.5x consolation in ppm (e.g., 20000 = 2%)
 
     // Game registrations
     mapping(address => GameConfig) private gameConfigs;
@@ -197,14 +197,14 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     event AdminStatusChanged(address indexed account, bool isAdmin);
     event TierProbabilityBoosted(uint8 indexed tierIndex, uint256 simulatedEntries, uint256 newProbBps);
     event TierProbabilityReset(uint8 indexed tierIndex, uint256 newProbBps);
-    event TierProbConfigUpdated(uint8 indexed tierIndex, uint16 minProbBps, uint16 maxProbBps, uint16 incrementBps);
+    event TierProbConfigUpdated(uint8 indexed tierIndex, uint32 minProbPpm, uint32 maxProbPpm, uint32 incrementPpm);
     event TierSharesUpdated(uint16[9] shares);
     event TierPotSeeded(uint8 indexed tierIndex, uint256 amount);
     event AdminFundsDistributed(address indexed admin, uint256 amount);
     
     // V2.1 consolation events
     event ConsolationShareUpdated(uint16 shareBps);
-    event ConsolationProbabilitiesUpdated(uint16 consolation1ProbBps, uint16 consolation2ProbBps);
+    event ConsolationProbabilitiesUpdated(uint32 consolation1ProbPpm, uint32 consolation2ProbPpm);
     event ConsolationPotSeeded(uint256 amount);
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -248,8 +248,8 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         
         // Default consolation config
         consolationShareBps = 500;          // 5% off-the-top for consolation pot
-        consolation1ProbBps = 1200;         // 12% chance for 1.2x
-        consolation2ProbBps = 600;          // 6% chance for 1.5x
+        consolation1ProbPpm = 120_000;       // 12% chance for 1.2x
+        consolation2ProbPpm = 60_000;        // 6% chance for 1.5x
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -296,27 +296,27 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     }
 
     /// @notice Set the consolation win probabilities
-    /// @param prob1Bps Probability for 1.2x consolation in bps (e.g., 1200 = 12%)
-    /// @param prob2Bps Probability for 1.5x consolation in bps (e.g., 600 = 6%)
-    function setConsolationProbabilities(uint16 prob1Bps, uint16 prob2Bps) external onlyOwner {
-        require(prob1Bps + prob2Bps <= 5000, "Total > 50%");  // Sanity check
-        consolation1ProbBps = prob1Bps;
-        consolation2ProbBps = prob2Bps;
-        emit ConsolationProbabilitiesUpdated(prob1Bps, prob2Bps);
+    /// @param prob1Ppm Probability for 1.2x consolation in ppm (e.g., 120000 = 12%)
+    /// @param prob2Ppm Probability for 1.5x consolation in ppm (e.g., 60000 = 6%)
+    function setConsolationProbabilities(uint32 prob1Ppm, uint32 prob2Ppm) external onlyOwner {
+        require(uint256(prob1Ppm) + uint256(prob2Ppm) <= 500_000, "Total > 50%");
+        consolation1ProbPpm = prob1Ppm;
+        consolation2ProbPpm = prob2Ppm;
+        emit ConsolationProbabilitiesUpdated(prob1Ppm, prob2Ppm);
     }
 
     /// @notice Get consolation configuration
     function getConsolationConfig() external view returns (
         uint256 potBalance,
         uint16 shareBps,
-        uint16 prob1Bps,
-        uint16 prob2Bps
+        uint32 prob1Ppm,
+        uint32 prob2Ppm
     ) {
         return (
             consolationPotBalance,
             consolationShareBps,
-            consolation1ProbBps,
-            consolation2ProbBps
+            consolation1ProbPpm,
+            consolation2ProbPpm
         );
     }
 
@@ -334,66 +334,65 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
 
     function setTierProbConfig(
         uint8 tierIndex,
-        uint16 minProbBps,
-        uint16 maxProbBps,
-        uint16 incrementBps
+        uint32 minProbPpm,
+        uint32 maxProbPpm,
+        uint32 incrementPpm
     ) external onlyOwner {
         require(tierIndex < TIER_COUNT, "Invalid tier");
-        require(minProbBps <= maxProbBps, "min > max");
-        require(maxProbBps <= PROBABILITY_PRECISION, "max > 100%");
+        require(minProbPpm <= maxProbPpm, "min > max");
+        require(maxProbPpm <= PROBABILITY_PRECISION, "max > 100%");
         
         tierProbConfigs[tierIndex] = TierProbConfig({
-            minProbBps: minProbBps,
-            maxProbBps: maxProbBps,
-            incrementBps: incrementBps
+            minProbPpm: minProbPpm,
+            maxProbPpm: maxProbPpm,
+            incrementPpm: incrementPpm
         });
         
-        // Initialize current probability to min if not set
         if (tierCurrentProbBps[tierIndex] == 0) {
-            tierCurrentProbBps[tierIndex] = minProbBps;
+            tierCurrentProbBps[tierIndex] = minProbPpm;
         }
         
-        emit TierProbConfigUpdated(tierIndex, minProbBps, maxProbBps, incrementBps);
+        emit TierProbConfigUpdated(tierIndex, minProbPpm, maxProbPpm, incrementPpm);
     }
 
     function setAllTierProbConfigs(
-        uint16 minProbBps,
-        uint16 maxProbBps,
-        uint16 incrementBps
+        uint32 minProbPpm,
+        uint32 maxProbPpm,
+        uint32 incrementPpm
     ) external onlyOwner {
-        require(minProbBps <= maxProbBps, "min > max");
-        require(maxProbBps <= PROBABILITY_PRECISION, "max > 100%");
+        require(minProbPpm <= maxProbPpm, "min > max");
+        require(maxProbPpm <= PROBABILITY_PRECISION, "max > 100%");
         
         for (uint8 i = 0; i < TIER_COUNT; i++) {
             tierProbConfigs[i] = TierProbConfig({
-                minProbBps: minProbBps,
-                maxProbBps: maxProbBps,
-                incrementBps: incrementBps
+                minProbPpm: minProbPpm,
+                maxProbPpm: maxProbPpm,
+                incrementPpm: incrementPpm
             });
             
             if (tierCurrentProbBps[i] == 0) {
-                tierCurrentProbBps[i] = minProbBps;
+                tierCurrentProbBps[i] = minProbPpm;
             }
             
-            emit TierProbConfigUpdated(i, minProbBps, maxProbBps, incrementBps);
+            emit TierProbConfigUpdated(i, minProbPpm, maxProbPpm, incrementPpm);
         }
     }
 
     function getTierProbability(uint8 tierIndex) external view returns (
-        uint256 currentProbBps,
+        uint256 currentProbPpm,
         uint256 entriesSinceWin,
-        uint16 minProbBps,
-        uint16 maxProbBps,
-        uint16 incrementBps
+        uint32 minProbPpm,
+        uint32 maxProbPpm,
+        uint32 incrementPpm
     ) {
         require(tierIndex < TIER_COUNT, "Invalid tier");
         TierProbConfig memory config = tierProbConfigs[tierIndex];
         return (
             tierCurrentProbBps[tierIndex],
             tierEntriesSinceWin[tierIndex],
-            config.minProbBps,
-            config.maxProbBps,
-            config.incrementBps
+            config.minProbPpm,
+            config.maxProbPpm,
+            config.incrementPpm
         );
     }
 
@@ -405,11 +404,11 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         require(tierIndex < TIER_COUNT, "Invalid tier");
         
         TierProbConfig memory config = tierProbConfigs[tierIndex];
-        uint256 boost = simulatedEntries * config.incrementBps;
+        uint256 boost = simulatedEntries * config.incrementPpm;
         uint256 newProb = tierCurrentProbBps[tierIndex] + boost;
         
-        if (newProb > config.maxProbBps) {
-            newProb = config.maxProbBps;
+        if (newProb > config.maxProbPpm) {
+            newProb = config.maxProbPpm;
         }
         
         tierCurrentProbBps[tierIndex] = newProb;
@@ -421,7 +420,7 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     function resetTierProbability(uint8 tierIndex) external onlyOwner {
         require(tierIndex < TIER_COUNT, "Invalid tier");
         
-        uint16 minProb = tierProbConfigs[tierIndex].minProbBps;
+        uint32 minProb = tierProbConfigs[tierIndex].minProbPpm;
         tierCurrentProbBps[tierIndex] = minProb;
         tierEntriesSinceWin[tierIndex] = 0;
         
@@ -631,7 +630,12 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
 
     function setPaymentHandler(address handler) external onlyOwner {
         require(handler != address(0), "Invalid handler");
+        address oldHandler = paymentHandler;
+        if (oldHandler != address(0)) {
+            evaToken.safeApprove(oldHandler, 0);
+        }
         paymentHandler = handler;
+        evaToken.safeApprove(handler, type(uint256).max);
     }
 
     function getCurrentDirectBetCost() external view returns (uint256) {
@@ -763,6 +767,7 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
 
         lastDirectBetBaseCost = cost;
 
+        evaToken.safeTransferFrom(msg.sender, address(this), cost);
         uint256 netAmount = IPaymentHandler(handler).processDirectBetFromGame(msg.sender, potentialReferrer, cost);
         require(netAmount <= cost, "Handler returned excess");
 
@@ -862,13 +867,13 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
 
     function _incrementTierProbability(uint8 tierIndex) internal {
         TierProbConfig memory config = tierProbConfigs[tierIndex];
-        if (config.incrementBps == 0) return;
+        if (config.incrementPpm == 0) return;
         
         uint256 currentProb = tierCurrentProbBps[tierIndex];
-        uint256 newProb = currentProb + config.incrementBps;
+        uint256 newProb = currentProb + config.incrementPpm;
         
-        if (newProb > config.maxProbBps) {
-            newProb = config.maxProbBps;
+        if (newProb > config.maxProbPpm) {
+            newProb = config.maxProbPpm;
         }
         
         tierCurrentProbBps[tierIndex] = newProb;
@@ -876,7 +881,7 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
     }
 
     function _resetTierProbability(uint8 tierIndex) internal {
-        uint16 minProb = tierProbConfigs[tierIndex].minProbBps;
+        uint32 minProb = tierProbConfigs[tierIndex].minProbPpm;
         tierCurrentProbBps[tierIndex] = minProb;
         tierEntriesSinceWin[tierIndex] = 0;
         
@@ -904,15 +909,10 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
             // Only consider the current tier's award slice
             if (oc.awardsTier && i != currentAwardIdx) continue;
 
-            // Get probability based on outcome type
-            uint16 p;
+            uint32 p;
             if (oc.awardsTier) {
-                // Tier award: use entry-based probability
-                p = uint16(tierCurrentProbBps[currentTier]);
+                p = uint32(tierCurrentProbBps[currentTier]);
             } else {
-                // Consolation: use fixed probability (stored in a simple way)
-                // We'll use a default approach - consolations have fixed probs
-                // This needs to be configured in the outcome
                 p = _getConsolationProbability(i);
             }
             
@@ -926,12 +926,9 @@ contract ProgressiveJackpotV2 is Ownable2Step, ReentrancyGuard, IRandomConsumer 
         revert InvalidProbabilityTable();
     }
 
-    function _getConsolationProbability(uint8 outcomeIndex) internal view returns (uint16) {
-        // Configurable consolation probabilities
-        // Outcome 1: 1.2x consolation
-        // Outcome 2: 1.5x consolation
-        if (outcomeIndex == 1) return consolation1ProbBps;
-        if (outcomeIndex == 2) return consolation2ProbBps;
+    function _getConsolationProbability(uint8 outcomeIndex) internal view returns (uint32) {
+        if (outcomeIndex == 1) return consolation1ProbPpm;
+        if (outcomeIndex == 2) return consolation2ProbPpm;
         return 0;
     }
 

@@ -202,7 +202,7 @@ contract PaymentHandler is Ownable2Step, ReentrancyGuard {
         netAmount = baseCost - houseFee - referralFee;
         require(netAmount > 0, "Net amount zero");
 
-        evaToken.safeTransferFrom(bettor, address(this), baseCost);
+        evaToken.safeTransferFrom(msg.sender, address(this), baseCost);
 
         if (houseFee > 0) {
             evaToken.safeTransfer(cfg.feeRecipient, houseFee);

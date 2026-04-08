@@ -1,51 +1,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IRandomConsumer} from "./interfaces/IRandomConsumer.sol";
+import {VRFGameBase} from "./base/VRFGameBase.sol";
+import {JackpotClient} from "./base/JackpotClient.sol";
 import {RandomDeriveLib} from "./libraries/RandomDeriveLib.sol";
 import {JackpotScalingLib} from "./libraries/JackpotScalingLib.sol";
-
-interface IPaymentHandlerMinimal {
-    function processDirectBetFromGame(address bettor, address potentialReferrer, uint256 baseCost)
-        external
-        returns (uint256 netAmount);
-
-    function getGameConfig(address game)
-        external
-        view
-        returns (
-            bool enabled,
-            address payoutTarget,
-            address feeRecipient,
-            uint16 houseEdgeBps,
-            uint16 referralBps
-        );
-}
-
-interface IRandomProviderMinimal {
-    function requestRandomNumbers(RandomDeriveLib.Range[] calldata ranges) external returns (uint256 requestId);
-}
-
-interface IProgressiveJackpotV2 {
-    function addFunds(uint256 amount) external;
-    function processJackpotEntry(address player, uint256 betAmount, uint256 roll) external returns (uint256 payout);
-    function PROBABILITY_PRECISION() external view returns (uint256);
-    function ensurePayable(address game, uint256 betAmount) external view;
-}
 
 /**
  * @title SingleRandomRouletteV2
  * @notice Roulette game with optional jackpot participation
  * @dev When jackpot is disabled per-spin, jackpot probability transfers to replay
  */
-contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuard {
-    using SafeERC20 for IERC20;
+contract SingleRandomRouletteV2 is VRFGameBase, JackpotClient {
 
     uint16 internal constant BPS_DENOMINATOR = 10_000;
     uint8 internal constant MAX_ROLLS = 6;
@@ -64,8 +33,8 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
 
     struct TableConfig {
         bool enabled;
-        uint16 replayBps;           // Base replay probability
-        uint16 jackpotBps;          // Jackpot probability (transfers to replay if jackpot disabled)
+        uint16 replayBps;
+        uint16 jackpotBps;
         uint16 jackpotContributionBps;
         uint16 minMultiplier;
         uint16 maxMultiplier;
@@ -91,8 +60,8 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         uint256 jackpotContribution;
         uint24 multiplierHundredths;
         uint16 multiplierBps;
-        uint16 jackpotBps;          // 0 if player opted out of jackpot
-        uint16 replayBps;           // Includes transferred jackpot probability if opted out
+        uint16 jackpotBps;
+        uint16 replayBps;
         uint32 configIndex;
         bool participatingInJackpot;
         bool exists;
@@ -115,33 +84,20 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
     // Errors
     // ─────────────────────────────────────────────────────────────────────────
 
-    error UnauthorizedCaller();
     error RouletteDisabled();
     error InvalidMultiplier(uint256 requested);
     error WagerTooLow(uint256 provided, uint256 required);
     error WagerTooHigh(uint256 provided, uint256 allowed);
-    error LiquidityShortfall(uint256 available, uint256 required);
-    error ProbabilityOverflow();
-    error JackpotNotConfigured();
     error InvalidRandomResponse(uint256 length);
     error InvalidRandomSlice(uint256 value);
-    error PaymentHandlerMisconfigured();
 
     // ─────────────────────────────────────────────────────────────────────────
     // State
     // ─────────────────────────────────────────────────────────────────────────
 
-    IPaymentHandlerMinimal public immutable paymentHandler;
-    IRandomProviderMinimal public immutable randomProvider;
-    IERC20 public immutable evaToken;
-
-    IProgressiveJackpotV2 public jackpot;
     TableConfig[] private tableConfigs;
     JackpotScalingConfig[] private scalingConfigs;
     uint32 public currentConfigIndex;
-
-    uint256 public lockedExposure;
-    uint256 private jackpotRollCap;
 
     mapping(uint256 => PendingSpin) public pendingSpins;
 
@@ -171,8 +127,6 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         JackpotScalingLib.ScalingFunction functionId
     );
 
-    event JackpotUpdated(address indexed jackpot, uint256 probabilityPrecision);
-
     event SpinStarted(
         uint256 indexed requestId,
         address indexed player,
@@ -200,15 +154,9 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
     // Constructor
     // ─────────────────────────────────────────────────────────────────────────
 
-    constructor(address handler, address provider, address eva) {
-        if (handler == address(0) || provider == address(0) || eva == address(0)) {
-            revert PaymentHandlerMisconfigured();
-        }
-
-        paymentHandler = IPaymentHandlerMinimal(handler);
-        randomProvider = IRandomProviderMinimal(provider);
-        evaToken = IERC20(eva);
-
+    constructor(address handler, address provider, address eva)
+        VRFGameBase(eva, handler, provider)
+    {
         tableConfigs.push(
             TableConfig({
                 enabled: false,
@@ -235,6 +183,14 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         );
 
         currentConfigIndex = 0;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // JackpotClient hook
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function _jackpotToken() internal view override returns (IERC20) {
+        return evaToken;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -302,28 +258,7 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
     }
 
     function setJackpot(address newJackpot) external onlyOwner {
-        address oldJackpot = address(jackpot);
-        if (oldJackpot != address(0)) {
-            evaToken.safeApprove(oldJackpot, 0);
-        }
-
-        if (newJackpot == address(0)) {
-            jackpot = IProgressiveJackpotV2(address(0));
-            jackpotRollCap = 0;
-            emit JackpotUpdated(address(0), 0);
-            return;
-        }
-
-        IProgressiveJackpotV2 candidate = IProgressiveJackpotV2(newJackpot);
-        uint256 precision = candidate.PROBABILITY_PRECISION();
-        if (precision == 0 || precision > type(uint128).max) revert ProbabilityOverflow();
-
-        jackpot = candidate;
-        jackpotRollCap = precision;
-
-        evaToken.safeApprove(newJackpot, type(uint256).max);
-
-        emit JackpotUpdated(newJackpot, precision);
+        _setJackpot(newJackpot);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -348,19 +283,6 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         return scalingConfigs[index];
     }
 
-    function availableLiquidity() external view returns (uint256) {
-        uint256 balance = evaToken.balanceOf(address(this));
-        if (balance <= lockedExposure) return 0;
-        return balance - lockedExposure;
-    }
-
-    /**
-     * @notice Preview spin probabilities with jackpot participation choice
-     * @param wager The wager amount
-     * @param multiplierHundredths The multiplier (e.g., 200 = 2x)
-     * @param configIndex Config index (type(uint32).max for current)
-     * @param participateInJackpot Whether to include jackpot probability
-     */
     function previewSpin(
         uint256 wager,
         uint256 multiplierHundredths,
@@ -383,15 +305,12 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
 
         TableConfig memory cfg = tableConfigs[index];
 
-        // Compute probabilities using helper
         (multiplierProbability, jackpotProbability, replayProbability) = _computeSpinProbabilitiesForIndex(
             wager, multiplierHundredths, index, cfg, participateInJackpot
         );
 
-        // Compute lose probability
         loseProbability = BPS_DENOMINATOR - multiplierProbability - replayProbability - jackpotProbability;
 
-        // Compute contribution and payout
         jackpotContribution = _previewJackpotContribution(wager, cfg.jackpotContributionBps);
         maxPayout = (wager * multiplierHundredths) / MULTIPLIER_SCALE;
     }
@@ -400,14 +319,6 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
     // Core Gameplay
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * @notice Start a spin with optional jackpot participation
-     * @param wager The wager amount in EVA
-     * @param multiplierHundredths The desired multiplier (e.g., 200 = 2x)
-     * @param potentialReferrer Referrer address (or zero)
-     * @param participateInJackpot If true, contribute to and participate in jackpot
-     * @return requestId The VRF request ID
-     */
     function startSpin(
         uint256 wager,
         uint256 multiplierHundredths,
@@ -421,11 +332,10 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         SpinParams memory params;
         params.configIndex = currentConfigIndex;
         params.participatingInJackpot = participateInJackpot;
-        
-        // Validate and compute probabilities in scoped block
+
         {
             TableConfig memory cfg = tableConfigs[currentConfigIndex];
-            
+
             if (!cfg.enabled) revert RouletteDisabled();
             if (multiplierHundredths < cfg.minMultiplier) revert InvalidMultiplier(multiplierHundredths);
             if (cfg.maxMultiplier != 0 && multiplierHundredths > cfg.maxMultiplier) {
@@ -434,7 +344,6 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
             if (cfg.minWager > 0 && wager < cfg.minWager) revert WagerTooLow(wager, cfg.minWager);
             if (cfg.maxWager > 0 && wager > cfg.maxWager) revert WagerTooHigh(wager, cfg.maxWager);
 
-            // Check jackpot configured if needed
             if (cfg.jackpotContributionBps > 0 && address(jackpot) == address(0)) {
                 revert JackpotNotConfigured();
             }
@@ -442,29 +351,23 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
                 revert JackpotNotConfigured();
             }
 
-            // Compute probabilities
             (params.multiplierBps, params.jackpotBps, params.replayBps) = _computeSpinProbabilities(
                 wager, multiplierHundredths, cfg, participateInJackpot
             );
         }
 
-        // Process payment
-        params.netStake = paymentHandler.processDirectBetFromGame(msg.sender, potentialReferrer, wager);
+        params.netStake = _collectAndProcessBet(msg.sender, potentialReferrer, wager);
         require(params.netStake > 0, "net zero");
 
-        // Compute derived values
         params.wager = wager;
         params.multiplierHundredths = uint24(multiplierHundredths);
         params.maxPayout = _computeMaxPayout(wager, multiplierHundredths);
         params.jackpotContribution = _computeJackpotContribution(params.netStake, tableConfigs[currentConfigIndex].jackpotContributionBps);
 
-        // Ensure payability
         _ensurePayabilitySimple(wager, multiplierHundredths, params.netStake, params.jackpotBps, participateInJackpot);
 
-        // Lock exposure
         _lockExposure(params.maxPayout, params.jackpotContribution);
 
-        // Request randomness and store
         requestId = _requestSpinRandomness(uint128(participateInJackpot && jackpotRollCap > 0 ? jackpotRollCap : BPS_DENOMINATOR));
         _storePendingSpin(requestId, msg.sender, params);
 
@@ -488,9 +391,9 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
     )
         external
         override
+        onlyRandomProvider
         nonReentrant
     {
-        if (msg.sender != address(randomProvider)) revert UnauthorizedCaller();
         if (derivedValues.length < MAX_ROLLS + 1) revert InvalidRandomResponse(derivedValues.length);
 
         PendingSpin memory spin = pendingSpins[requestId];
@@ -505,20 +408,15 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
 
         uint256 jackpotPayout;
 
-        // Always deposit jackpot contribution (regardless of participation)
         _depositToJackpot(spin.jackpotContribution);
 
         if (outcome == SpinResolution.Jackpot && spin.participatingInJackpot) {
-            // Player participating: process jackpot entry
             uint256 jackpotRoll = derivedValues[MAX_ROLLS];
             if (jackpotRollCap == 0 || jackpotRoll >= jackpotRollCap) revert InvalidRandomSlice(jackpotRoll);
-            jackpotPayout = jackpot.processJackpotEntry(spin.player, spin.wager, jackpotRoll);
+            jackpotPayout = _enterJackpot(spin.player, spin.wager, jackpotRoll);
         } else if (outcome == SpinResolution.Multiplier) {
-            // Multiplier win: pay out
-            evaToken.safeTransfer(spin.player, spin.maxPayout);
+            _payPlayer(spin.player, spin.maxPayout);
         }
-        // Note: If Jackpot outcome but not participating, it's already converted to replay
-        // so this case shouldn't happen (jackpotBps = 0 when not participating)
 
         uint256 payout = outcome == SpinResolution.Multiplier ? spin.maxPayout : 0;
 
@@ -532,10 +430,9 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
     )
         external
         override
+        onlyRandomProvider
         nonReentrant
     {
-        if (msg.sender != address(randomProvider)) revert UnauthorizedCaller();
-
         PendingSpin memory spin = pendingSpins[requestId];
         if (!spin.exists) {
             return;
@@ -580,13 +477,6 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         return JackpotScalingLib.computeProbability(_toScalingConfig(scalingStorage), wager);
     }
 
-    function _depositToJackpot(uint256 amount) internal {
-        if (amount == 0 || address(jackpot) == address(0)) {
-            return;
-        }
-        jackpot.addFunds(amount);
-    }
-
     function _computeSpinProbabilities(
         uint256 wager,
         uint256 multiplierHundredths,
@@ -603,13 +493,10 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         TableConfig memory cfg,
         bool participateInJackpot
     ) internal view returns (uint16 multiplierBps, uint16 jackpotBps, uint16 replayBps) {
-        // Get fees
         (, , , uint16 houseEdgeBps, uint16 referralBps) = paymentHandler.getGameConfig(address(this));
-        
-        // Base jackpot probability
+
         uint16 baseJackpotBps = _computeJackpotProbability(index, cfg.jackpotBps, wager);
-        
-        // Apply participation choice
+
         if (participateInJackpot) {
             jackpotBps = baseJackpotBps;
             replayBps = cfg.replayBps;
@@ -617,10 +504,9 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
             jackpotBps = 0;
             replayBps = cfg.replayBps + baseJackpotBps;
         }
-        
-        // Effective edge always includes contribution
+
         uint16 effectiveEdge = _calculateEffectiveEdge(houseEdgeBps, referralBps, cfg.jackpotContributionBps);
-        
+
         (multiplierBps, ) = _deriveMultiplierProbability(multiplierHundredths, replayBps, jackpotBps, effectiveEdge);
     }
 
@@ -640,7 +526,7 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         uint256 betAmount,
         uint256 multiplierHundredths,
         uint256 netStake,
-        uint16 jackpotBps,
+        uint16 _jackpotBps,
         bool participateInJackpot
     ) internal view {
         TableConfig memory cfg = tableConfigs[currentConfigIndex];
@@ -654,15 +540,15 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         if (cfg.jackpotContributionBps > 0 && address(jackpot) == address(0)) {
             revert JackpotNotConfigured();
         }
-        if (participateInJackpot && jackpotBps > 0) {
-            jackpot.ensurePayable(address(this), netStake);
+        if (participateInJackpot && _jackpotBps > 0) {
+            _ensureJackpotPayable(netStake);
         }
     }
 
     function _deriveMultiplierProbability(
         uint256 multiplierHundredths,
         uint16 replayBps,
-        uint16 jackpotBps,
+        uint16 _jackpotBps,
         uint16 houseEdgeBps
     ) internal pure returns (uint16 multiplierBps, uint16 loseBps) {
         uint256 baseRtp = BPS_DENOMINATOR - houseEdgeBps;
@@ -672,22 +558,22 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
 
         multiplierBps = uint16(Math.min(BPS_DENOMINATOR, (adjustedRtp * MULTIPLIER_SCALE) / multiplierHundredths));
 
-        if (uint256(multiplierBps) + replayBps + jackpotBps > BPS_DENOMINATOR) {
-            jackpotBps = BPS_DENOMINATOR - multiplierBps - replayBps - 100;
+        if (uint256(multiplierBps) + replayBps + _jackpotBps > BPS_DENOMINATOR) {
+            _jackpotBps = BPS_DENOMINATOR - multiplierBps - replayBps - 100;
         }
 
-        loseBps = uint16(BPS_DENOMINATOR - multiplierBps - replayBps - jackpotBps);
+        loseBps = uint16(BPS_DENOMINATOR - multiplierBps - replayBps - _jackpotBps);
     }
 
     function _resolveSpin(
         PendingSpin memory spin,
         TableConfig memory /*config*/,
-        uint16 jackpotBps,
+        uint16 _jackpotBps,
         uint256[] memory derivedValues
     ) internal pure returns (SpinResolution outcome, uint8 spinsConsumed) {
         uint256 multiplierThreshold = spin.multiplierBps;
         uint256 replayThreshold = multiplierThreshold + spin.replayBps;
-        uint256 jackpotThreshold = replayThreshold + jackpotBps;
+        uint256 jackpotThreshold = replayThreshold + _jackpotBps;
 
         for (uint8 i = 0; i < MAX_ROLLS; i++) {
             uint256 roll = derivedValues[i];
@@ -760,33 +646,10 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         }
     }
 
-    function _lockExposure(uint256 maxPayout, uint256 jackpotContribution) internal {
-        uint256 proposedLocked = lockedExposure + maxPayout + jackpotContribution;
-        uint256 balance = evaToken.balanceOf(address(this));
-        if (balance < proposedLocked) revert LiquidityShortfall(balance, proposedLocked);
-        lockedExposure = proposedLocked;
-    }
-
-    function _unlockExposure(uint256 maxPayout, uint256 jackpotContribution) internal {
-        uint256 reduction = maxPayout + jackpotContribution;
-        if (lockedExposure < reduction) {
-            lockedExposure = 0;
-        } else {
-            lockedExposure -= reduction;
-        }
-    }
-
     function _computeMaxPayout(uint256 wager, uint256 multiplierHundredths) internal pure returns (uint256) {
         return Math.mulDiv(wager, multiplierHundredths, MULTIPLIER_SCALE);
     }
 
-    /**
-     * @notice Calculate effective edge accounting for all fee layers
-     * @param houseEdgeBps House fee in basis points
-     * @param referralBps Referral fee in basis points
-     * @param jackpotContributionBps Jackpot contribution in basis points of net stake
-     * @return effectiveEdgeBps The combined effective edge
-     */
     function _calculateEffectiveEdge(
         uint16 houseEdgeBps,
         uint16 referralBps,
@@ -797,17 +660,4 @@ contract SingleRandomRouletteV2 is IRandomConsumer, Ownable2Step, ReentrancyGuar
         effectiveEdgeBps = uint16(BPS_DENOMINATOR - poolFundingRate);
         return effectiveEdgeBps;
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Emergency
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function emergencyWithdraw(address to, uint256 amount) external onlyOwner nonReentrant {
-        require(to != address(0), "to");
-        uint256 bal = evaToken.balanceOf(address(this));
-        uint256 amt = amount == 0 ? bal : amount;
-        require(amt <= bal, "insufficient");
-        evaToken.safeTransfer(to, amt);
-    }
 }
-

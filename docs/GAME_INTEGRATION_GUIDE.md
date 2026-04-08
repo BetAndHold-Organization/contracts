@@ -1,631 +1,738 @@
-# Game Integration Guide
+# Game Integration Guide — V5 Architecture
 
-This guide explains how to integrate external games with The Burning Games payment, referral, and jackpot system.
+This guide explains how to build and connect a new game to The Burning Games ecosystem using the V5 base contract architecture. It covers three integration tiers — from simple off-chain games to full on-chain games with VRF randomness and progressive jackpot participation.
+
+---
 
 ## Table of Contents
 
-- [Architecture Overview](#architecture-overview)
-- [Integration Options](#integration-options)
-- [Option 1: PaymentOnlyGameAdapter](#option-1-paymentonlygameadapter-simplest)
-- [Option 2: Full On-Chain Game with VRF](#option-2-full-on-chain-game-with-vrf)
-- [Registering Your Game](#registering-your-game)
-- [Payment Flow](#payment-flow)
-- [Jackpot System](#jackpot-system)
+1. [Architecture Overview](#1-architecture-overview)
+2. [Base Contract Reference](#2-base-contract-reference)
+3. [Tier 1 — Off-Chain Game (BaseGame)](#3-tier-1--off-chain-game-basegame)
+4. [Tier 2 — On-Chain Game with VRF (VRFGameBase)](#4-tier-2--on-chain-game-with-vrf-vrfgamebase)
+5. [Tier 3 — On-Chain Game with VRF + Jackpot](#5-tier-3--on-chain-game-with-vrf--jackpot)
+6. [Admin Registration Checklist](#6-admin-registration-checklist)
+7. [Frontend Integration](#7-frontend-integration)
+8. [Migration from V4](#8-migration-from-v4)
+9. [Common Pitfalls / FAQ](#9-common-pitfalls--faq)
 
 ---
 
-## Architecture Overview
+## 1. Architecture Overview
+
+### Payment Flow
+
+The V5 architecture introduces a security-first payment flow. Players approve **individual game contracts** — never the PaymentHandler directly. This prevents a compromised game from draining a shared approval.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                           PLAYER                                     │
-│                    (has EVA tokens)                                  │
-└───────────────────────────┬─────────────────────────────────────────┘
-                            │ approve() + play()
-                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                       YOUR GAME                                      │
-│           (Roulette, Slots, External Game, etc.)                     │
-│                                                                      │
-│   Calls: handler.processDirectBetFromGame(player, referrer, amount) │
-└───────────────────────────┬─────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    PAYMENT HANDLER                                   │
-│                                                                      │
-│   1. Takes tokens from player (via approve)                         │
-│   2. Deducts house edge (e.g., 2%) → sends to feeRecipient          │
-│   3. Deducts referral fee (e.g., 2%) → sends to referral system     │
-│   4. Returns netAmount (96%) to the GAME                            │
-└───────────────────────────┬─────────────────────────────────────────┘
-                            │
-              ┌─────────────┴─────────────┐
-              ▼                           ▼
-┌─────────────────────────┐   ┌─────────────────────────────────────┐
-│   MULTI-LEVEL REFERRAL   │   │         GAME (receives net)         │
-│                          │   │                                     │
-│ Distributes referral %   │   │ 1. Calculates jackpot contribution │
-│ across 5 levels:         │   │ 2. Calls jackpot.addFunds(amount)  │
-│ - L1: 70%               │   │    (jackpot PULLS tokens from game) │
-│ - L2: 12%               │   │ 3. Calls jackpot.processJackpotEntry│
-│ - L3: 9%                │   │ 4. Runs game logic with stake       │
-│ - L4: 6%                │   │ 5. Pays winner if applicable        │
-│ - L5: 3%                │   └─────────────────────────────────────┘
-└─────────────────────────┘               │
-                                          ▼
-                            ┌─────────────────────────────────────┐
-                            │      PROGRESSIVE JACKPOT V2         │
-                            │                                     │
-                            │ - addFunds() pulls tokens from game │
-                            │ - Distributes to 9 tier pots        │
-                            │ - processJackpotEntry() rolls for   │
-                            │   tier win or consolation           │
-                            │ - Pays jackpot wins to player       │
-                            └─────────────────────────────────────┘
-
-**Important**: Game must approve jackpot contract to spend its tokens 
-before calling `addFunds()`. See `setJackpot()` in the examples.
+                          ┌──────────────┐
+   1. approve(game) ─────>│  ERC20 Token │
+                          └──────┬───────┘
+                                 │
+   2. play()                     │ 3. transferFrom(player → game)
+       │                         │
+       v                         v
+  ┌─────────┐   4. processDirectBetFromGame()   ┌──────────────────┐
+  │  Player  │ ──────────────────────────────>   │  Game Contract   │
+  └─────────┘                                    └──────┬───────────┘
+                                                        │
+                                        ┌───────────────┼───────────────┐
+                                        │               │               │
+                                        v               v               v
+                                ┌──────────────┐ ┌───────────┐ ┌───────────────┐
+                                │PaymentHandler│ │  Jackpot   │ │ Player (wins) │
+                                └──────┬───────┘ └───────────┘ └───────────────┘
+                                       │
+                              ┌────────┼────────┐
+                              v        v        v
+                        House Fee  Referral  Net Stake
+                        (wallet)  (contract) (→ game)
 ```
 
+**Step-by-step:**
+
+1. Player calls `token.approve(gameAddress, amount)` once.
+2. Player calls the game's play/bet function.
+3. The game pulls tokens from the player via `transferFrom`.
+4. The game calls `PaymentHandler.processDirectBetFromGame()`, which pulls tokens from the game, deducts fees, and returns the net stake to the game's `payoutTarget`.
+5. The game optionally sends a jackpot contribution.
+6. On win, the game pays the player from its own balance.
+
+### Inheritance Hierarchy
+
+```
+                  ┌────────────────────────┐
+                  │  Ownable2Step          │
+                  │  ReentrancyGuard       │
+                  └───────────┬────────────┘
+                              │
+                  ┌───────────▼────────────┐
+                  │      BaseGame          │  ◄── Tier 1
+                  │  (token, handler,      │
+                  │   exposure, payments)  │
+                  └───────────┬────────────┘
+                              │
+                  ┌───────────▼────────────┐
+                  │     VRFGameBase        │  ◄── Tier 2
+                  │  (randomProvider,      │
+                  │   IRandomConsumer)     │
+                  └───────────┬────────────┘
+                              │
+                              │    ┌──────────────────────┐
+                              │    │   JackpotClient      │  (mixin)
+                              │    │  (deposit, enter,    │
+                              │    │   ensurePayable)     │
+                              │    └──────────┬───────────┘
+                              │               │
+                  ┌───────────▼───────────────▼┐
+                  │  Concrete Game             │  ◄── Tier 3
+                  │  (e.g. Roulette, Slots)    │
+                  └────────────────────────────┘
+```
+
+Choose your tier based on what your game needs:
+
+| Need | Tier 1 | Tier 2 | Tier 3 |
+|---|:---:|:---:|:---:|
+| Bet collection & fee processing | Yes | Yes | Yes |
+| Exposure locking | Optional | Yes | Yes |
+| On-chain VRF randomness | No | Yes | Yes |
+| Jackpot contribution | No | No | Yes |
+| Jackpot entry (player can win) | No | No | Yes |
+
 ---
 
-## Integration Options
+## 2. Base Contract Reference
 
-| Option | Use Case | Complexity | On-Chain Logic |
-|--------|----------|------------|----------------|
-| **PaymentOnlyGameAdapter** | Unity/Unreal/Web games with off-chain logic | Simple | No |
-| **Full On-Chain Game** | Provably fair, trustless games with VRF | Complex | Yes |
+### BaseGame (`contracts/base/BaseGame.sol`)
 
----
+Provides token management, payment handler integration, exposure locking, and emergency withdrawal.
 
-## Option 1: PaymentOnlyGameAdapter (Simplest)
+| Function | Visibility | Purpose |
+|---|---|---|
+| `_collectBet(player, amount)` | internal | Pull tokens from the player into the game. Player must have approved this game contract. |
+| `_processBet(bettor, referrer, amount)` | internal | Forward a bet through the PaymentHandler (fees, referrals). Returns `netStake`. |
+| `_collectAndProcessBet(player, referrer, amount)` | internal | Convenience: `_collectBet` + `_processBet` in one call. Returns `netStake`. |
+| `_payPlayer(player, amount)` | internal | Transfer tokens from game to player (winnings/refunds). |
+| `_lockExposure(maxPayout, jackpotContribution)` | internal | Reserve liquidity for a pending bet. Reverts with `LiquidityShortfall` if insufficient. |
+| `_unlockExposure(maxPayout, jackpotContribution)` | internal | Release reserved liquidity when a bet resolves. |
+| `availableLiquidity()` | external view | Token balance minus locked exposure. |
+| `setPaymentHandler(newHandler)` | external onlyOwner | Swap handler; manages ERC20 approvals automatically. |
+| `emergencyWithdraw(to, amount)` | external onlyOwner | Emergency token extraction. Override to reset internal accounting if needed. |
 
-Best for external games (Unity, Unreal, web-based) where game logic runs off-chain. The adapter handles payment processing but **jackpot contributions must be handled separately** by your backend.
+**State variables:**
+- `evaToken` (IERC20, immutable) — the ecosystem ERC20 token.
+- `paymentHandler` (IPaymentHandlerMinimal) — the payment handler contract.
+- `lockedExposure` (uint256) — total tokens reserved for pending bets.
 
-### How It Works
+### VRFGameBase (`contracts/base/VRFGameBase.sol`)
 
-1. Player approves tokens to PaymentHandler
-2. Your backend calls `adapter.play()` to process the bet
-3. Your backend sends jackpot contribution to jackpot contract
-4. Game logic runs off-chain (your server)
-5. If player wins, backend calls `adapter.payWinner()`
+Extends BaseGame with Chainlink VRF plumbing.
 
-### Contract Interface
+| Function / Modifier | Purpose |
+|---|---|
+| `randomProvider` (immutable) | The `RandomProviderV2` instance. |
+| `onlyRandomProvider` modifier | Restricts callback functions to the VRF provider. |
+
+**You must implement** (from `IRandomConsumer`):
 
 ```solidity
-contract PaymentOnlyGameAdapter {
-    // Process a bet - handles fees and referrals automatically
-    function play(
-        uint256 amount,           // Bet amount in EVA
-        address potentialReferrer, // Who referred this player (or address(0))
-        bytes32 gameId            // Your game's unique identifier
-    ) external;
-    
-    // Pay a winner (only owner can call)
-    function payWinner(
-        address player,           // Winner's address
-        uint256 amount            // Amount to pay
-    ) external;
-    
-    // Withdraw liquidity (only owner)
-    function withdraw(address to, uint256 amount) external;
-}
+function fulfillRandomness(
+    uint256 requestId,
+    uint256 randomWord,
+    uint256[] memory derivedValues
+) external override onlyRandomProvider;
+
+function handleRandomFailure(
+    uint256 requestId,
+    bytes32 reason,
+    bytes calldata details
+) external override onlyRandomProvider;
 ```
 
-### JavaScript/TypeScript Example
+### JackpotClient (`contracts/base/JackpotClient.sol`)
 
-```typescript
-import { parseEther } from 'viem';
+Mixin for games that interact with the Progressive Jackpot. Does **not** inherit BaseGame — it composes alongside it via multiple inheritance.
 
-const JACKPOT_CONTRIB_BPS = 350; // 3.5%
+| Function | Visibility | Purpose |
+|---|---|---|
+| `_jackpotToken()` | internal view virtual | **Must override.** Return the game's ERC20 token (typically `evaToken`). |
+| `_setJackpot(newJackpot)` | internal | Set/clear jackpot address. Manages ERC20 approvals automatically. |
+| `_depositToJackpot(amount)` | internal | Send contribution to jackpot. No-op if jackpot is not set or amount is zero. |
+| `_enterJackpot(player, betAmount, roll)` | internal | Enter the player into the jackpot draw. Returns payout (may be zero). |
+| `_ensureJackpotPayable(betAmount)` | internal view | Revert if the jackpot cannot pay out for the given bet. |
 
-// SETUP (once): Adapter must approve jackpot to pull tokens
-async function setupJackpotApproval() {
-    // The adapter owner must approve jackpot to spend adapter's tokens
-    // This is done by transferring tokens to adapter, then adapter approves jackpot
-    // Or use a custom adapter that handles this internally
-}
-
-// 1. Player approves tokens BEFORE playing
-async function approveTokens(playerWallet, amount) {
-    await token.write.approve([handlerAddress, amount], { account: playerWallet });
-}
-
-// 2. Process a bet with jackpot contribution
-async function placeBet(betAmount, referrerAddress, gameId) {
-    // Convert gameId string to bytes32
-    const gameIdBytes32 = stringToBytes32(gameId);
-    
-    // Process bet through adapter (handles fees, returns net to adapter)
-    await adapter.write.play([
-        betAmount,
-        referrerAddress || "0x0000000000000000000000000000000000000000",
-        gameIdBytes32
-    ]);
-    
-    // Calculate net amount after fees (96% if 2% house + 2% referral)
-    const netAmount = (betAmount * 96n) / 100n;
-    
-    // Calculate jackpot contribution (3.5% of net)
-    const jackpotContrib = (netAmount * BigInt(JACKPOT_CONTRIB_BPS)) / 10000n;
-    
-    // IMPORTANT: Jackpot contribution requires:
-    // 1. Your game/adapter must have tokens
-    // 2. Your game/adapter must have approved jackpot to spend tokens
-    // 3. Call jackpot.addFunds() which PULLS tokens from your contract
-    // 
-    // For PaymentOnlyGameAdapter, you need a custom solution or 
-    // handle jackpot separately. See Full On-Chain Game for proper integration.
-    
-    return { netAmount, jackpotContrib };
-}
-
-// 3. Pay winner (called from your backend with owner wallet)
-async function payWinner(playerAddress, winAmount) {
-    await adapter.write.payWinner([playerAddress, winAmount]);
-}
-```
-
-> **Note**: The `PaymentOnlyGameAdapter` doesn't natively support jackpot contributions. 
-> For full jackpot integration, use a **Full On-Chain Game** (Option 2) which properly 
-> handles the approval and `addFunds` flow.
-
-### Unity C# Example
-
-```csharp
-using Nethereum.Web3;
-using Nethereum.Contracts;
-using System.Numerics;
-
-public class GamePaymentManager : MonoBehaviour
-{
-    // Step 1: Approve tokens (call once per session or when needed)
-    public async Task ApproveTokens(string playerAddress, BigInteger amount)
-    {
-        var web3 = new Web3(playerWallet);
-        var token = web3.Eth.GetContract(ERC20_ABI, tokenAddress);
-        var approveFunction = token.GetFunction("approve");
-        
-        await approveFunction.SendTransactionAsync(
-            playerAddress,
-            handlerAddress,
-            amount
-        );
-    }
-    
-    // Step 2: Place bet (without jackpot - use Full On-Chain Game for jackpot)
-    public async Task<BigInteger> PlaceBet(BigInteger amount, string referrer, string gameId)
-    {
-        var web3 = new Web3(backendWallet);
-        var adapter = web3.Eth.GetContract(ADAPTER_ABI, adapterAddress);
-        
-        // Process bet through adapter
-        byte[] gameIdBytes = Encoding.UTF8.GetBytes(gameId).PadRight(32);
-        var playFunction = adapter.GetFunction("play");
-        await playFunction.SendTransactionAsync(
-            backendAddress,
-            amount,
-            string.IsNullOrEmpty(referrer) ? AddressZero : referrer,
-            gameIdBytes
-        );
-        
-        // Calculate net amount after fees (96% if 2% house + 2% referral)
-        BigInteger netAmount = amount * 96 / 100;
-        
-        return netAmount;
-    }
-    
-    // Step 3: Pay winner (backend only)
-    public async Task PayWinner(string winnerAddress, BigInteger amount)
-    {
-        var web3 = new Web3(backendWallet);
-        var adapter = web3.Eth.GetContract(ADAPTER_ABI, adapterAddress);
-        var payFunction = adapter.GetFunction("payWinner");
-        
-        await payFunction.SendTransactionAsync(
-            backendAddress,
-            winnerAddress,
-            amount
-        );
-    }
-}
-```
-
-> **Note**: For jackpot integration, use a **Full On-Chain Game** (Option 2) which 
-> handles token approvals and the `addFunds` → `processJackpotEntry` flow correctly.
-```
+**State variables:**
+- `jackpot` (IProgressiveJackpotV2) — the jackpot contract.
+- `jackpotRollCap` (uint256) — probability precision from the jackpot (e.g. 10000).
 
 ---
 
-## Option 2: Full On-Chain Game with VRF
+## 3. Tier 1 — Off-Chain Game (BaseGame)
 
-For fully trustless, provably fair games where all logic runs on-chain with Chainlink VRF for randomness.
+Use this tier for games where logic and winner determination happen off-chain (server-side). The contract handles bet collection, fee routing, and owner-triggered payouts.
 
-### Complete Game Structure with Jackpot
+### Complete Example
 
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import {BaseGame} from "./base/BaseGame.sol";
 
-interface IPaymentHandler {
-    function processDirectBetFromGame(
-        address bettor,
-        address potentialReferrer,
-        uint256 baseCost
-    ) external returns (uint256 netAmount);
-}
-
-interface IProgressiveJackpotV2 {
-    function addFunds(uint256 amount) external;
-    function processJackpotEntry(
-        address player,
-        uint256 betAmount,
-        uint256 roll
-    ) external returns (uint256 payout);
-}
-
-interface IRandomProvider {
-    function requestRandomNumber(uint256 maxNumber) external returns (uint256 requestId);
-}
-
-interface IRandomConsumer {
-    function fulfillRandomness(
-        uint256 requestId,
-        uint256 randomWord,
-        uint256[] memory derivedValues
-    ) external;
-}
-
-contract MyVRFGame is IRandomConsumer, ReentrancyGuard, Ownable {
-    using SafeERC20 for IERC20;
-    
-    IERC20 public immutable token;
-    IPaymentHandler public immutable handler;
-    IRandomProvider public randomProvider;
-    IProgressiveJackpotV2 public jackpot;
-    
-    uint16 public constant JACKPOT_CONTRIB_BPS = 350; // 3.5% to jackpot
-    
-    struct PendingBet {
-        address player;
-        uint256 netAmount;
-        uint256 jackpotContrib;
-        uint256 multiplier;
-        bool settled;
-    }
-    
-    mapping(uint256 => PendingBet) public pendingBets;
-    
-    event BetPlaced(uint256 indexed requestId, address indexed player, uint256 amount, uint256 multiplier);
-    event BetSettled(uint256 indexed requestId, address indexed player, uint256 payout, uint256 jackpotWin);
-    event JackpotUpdated(address indexed newJackpot);
-    
-    constructor(
-        address _token, 
-        address _handler,
-        address _randomProvider
-    ) {
-        token = IERC20(_token);
-        handler = IPaymentHandler(_handler);
-        randomProvider = IRandomProvider(_randomProvider);
-    }
-    
-    /**
-     * @notice Set the jackpot contract and approve it to pull tokens
-     * @dev This approval allows jackpot.addFunds() to work
-     */
-    function setJackpot(address _jackpot) external onlyOwner {
-        // Remove approval from old jackpot
-        if (address(jackpot) != address(0)) {
-            token.safeApprove(address(jackpot), 0);
-        }
-        
-        jackpot = IProgressiveJackpotV2(_jackpot);
-        
-        // IMPORTANT: Approve new jackpot to pull tokens from this contract
-        // This is required for jackpot.addFunds() to work
-        if (_jackpot != address(0)) {
-            token.safeApprove(_jackpot, type(uint256).max);
-        }
-        
-        emit JackpotUpdated(_jackpot);
-    }
-    
-    /**
-     * @notice Place a bet - VRF will be called for randomness
-     * @param amount Bet amount in tokens
-     * @param multiplier Target multiplier (e.g., 200 = 2x)
-     * @param referrer Address of potential referrer
-     */
-    function play(
+contract MyOffChainGame is BaseGame {
+    event BetPlaced(
+        address indexed player,
         uint256 amount,
-        uint256 multiplier,
-        address referrer
-    ) external nonReentrant returns (uint256 requestId) {
-        require(multiplier >= 101 && multiplier <= 10000, "Invalid multiplier");
-        
-        // 1. Process payment through handler
-        //    Deducts house edge and referral fees, returns net to this contract
-        uint256 netAmount = handler.processDirectBetFromGame(
-            msg.sender,
-            referrer,
-            amount
-        );
-        
-        // 2. Calculate jackpot contribution
-        uint256 jackpotContrib = (netAmount * JACKPOT_CONTRIB_BPS) / 10000;
-        uint256 stake = netAmount - jackpotContrib;
-        
-        // 3. Request random number from VRF (2 values: game roll + jackpot roll)
-        requestId = randomProvider.requestRandomNumber(10000);
-        
-        // 4. Store bet details for fulfillment (including jackpot contribution)
-        pendingBets[requestId] = PendingBet({
-            player: msg.sender,
-            netAmount: stake,
-            jackpotContrib: jackpotContrib,
-            multiplier: multiplier,
-            settled: false
-        });
-        
-        emit BetPlaced(requestId, msg.sender, stake, multiplier);
+        uint256 netAmount,
+        bytes32 gameId
+    );
+    event WinnerPaid(address indexed player, uint256 amount);
+
+    constructor(address token, address handler)
+        BaseGame(token, handler)
+    {}
+
+    /// @notice Player places a bet. Game logic resolved off-chain.
+    function placeBet(
+        uint256 amount,
+        address referrer,
+        bytes32 gameId
+    ) external nonReentrant {
+        require(amount > 0, "amount=0");
+        uint256 netAmount = _collectAndProcessBet(msg.sender, referrer, amount);
+        emit BetPlaced(msg.sender, amount, netAmount, gameId);
     }
-    
-    /**
-     * @notice Called by RandomProvider when VRF responds
-     */
-    function fulfillRandomness(
-        uint256 requestId,
-        uint256 /* randomWord */,
-        uint256[] memory derivedValues
-    ) external override {
-        require(msg.sender == address(randomProvider), "Only provider");
-        
-        PendingBet storage bet = pendingBets[requestId];
-        require(bet.player != address(0), "Unknown request");
-        require(!bet.settled, "Already settled");
-        
-        bet.settled = true;
-        
-        // Get random values
-        uint256 gameRoll = derivedValues[0];      // 0-9999 for game
-        uint256 jackpotRoll = derivedValues.length > 1 ? derivedValues[1] : gameRoll;
-        
-        // Process jackpot contribution and entry
-        uint256 jackpotWin = 0;
-        if (address(jackpot) != address(0) && bet.jackpotContrib > 0) {
-            // IMPORTANT: addFunds() pulls tokens from this contract (requires approval)
-            // The approval was set in setJackpot()
-            jackpot.addFunds(bet.jackpotContrib);
-            
-            // Process player's jackpot entry with the random roll
-            jackpotWin = jackpot.processJackpotEntry(bet.player, bet.jackpotContrib, jackpotRoll);
-        }
-        
-        // Calculate win threshold based on multiplier
-        // e.g., 2x multiplier = 50% chance (5000 threshold)
-        uint256 winThreshold = 10000 * 100 / bet.multiplier;
-        
-        uint256 payout = 0;
-        if (gameRoll < winThreshold) {
-            // Player wins!
-            payout = (bet.netAmount * bet.multiplier) / 100;
-            token.safeTransfer(bet.player, payout);
-        }
-        
-        emit BetSettled(requestId, bet.player, payout, jackpotWin);
-        
-        delete pendingBets[requestId];
-    }
-    
-    /**
-     * @notice Withdraw liquidity (owner only)
-     */
-    function withdraw(address to, uint256 amount) external onlyOwner {
-        token.safeTransfer(to, amount);
+
+    /// @notice Owner pays the winner after off-chain resolution.
+    function payWinner(address player, uint256 amount) external onlyOwner nonReentrant {
+        require(player != address(0) && amount > 0, "bad args");
+        _payPlayer(player, amount);
+        emit WinnerPaid(player, amount);
     }
 }
 ```
 
-### Requesting Multiple Random Values
+### What happens under the hood
 
-When calling `requestRandomNumber`, you can request multiple derived values by registering your game with a higher `maxRanges`:
+1. `_collectAndProcessBet(msg.sender, referrer, amount)`:
+   - Calls `evaToken.safeTransferFrom(player, address(this), amount)` — pulls tokens from player.
+   - Calls `paymentHandler.processDirectBetFromGame(player, referrer, amount)` — handler pulls tokens from game, deducts house edge and referral fee, returns net stake to the game's `payoutTarget`.
+2. `_payPlayer(player, amount)`:
+   - Calls `evaToken.safeTransfer(player, amount)` — sends winnings from game balance.
+
+### Constructor arguments
+
+| Param | Description |
+|---|---|
+| `token` | Address of the ERC20 token (EverValueCoin / TRT) |
+| `handler` | Address of the deployed PaymentHandler |
+
+---
+
+## 4. Tier 2 — On-Chain Game with VRF (VRFGameBase)
+
+Use this tier for games that need verifiable on-chain randomness but do not interact with the jackpot. The game requests random numbers from `RandomProviderV2` and receives a callback.
+
+### Complete Example: Coin Flip
 
 ```solidity
-// In RandomProvider registration:
-randomProvider.setConsumerStatus(gameAddress, true, 7); // Up to 7 random values
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.20;
 
-// In your game, request with max number:
-uint256 requestId = randomProvider.requestRandomNumber(10000);
+import {VRFGameBase} from "./base/VRFGameBase.sol";
+import {RandomDeriveLib} from "./libraries/RandomDeriveLib.sol";
 
-// In fulfillRandomness, you'll receive:
-// derivedValues[0] = first random 0-9999
-// derivedValues[1] = second random 0-9999
-// ... etc
+contract CoinFlip is VRFGameBase {
+    struct PendingFlip {
+        address player;
+        uint256 wager;
+        uint256 netStake;
+        uint256 maxPayout;
+        bool headsGuess; // true = heads, false = tails
+        bool exists;
+    }
+
+    mapping(uint256 => PendingFlip) public pendingFlips;
+
+    event FlipStarted(uint256 indexed requestId, address indexed player, uint256 wager, bool headsGuess);
+    event FlipResolved(uint256 indexed requestId, address indexed player, bool won, uint256 payout);
+    event FlipFailed(uint256 indexed requestId, address indexed player);
+
+    uint256 public minWager;
+    uint256 public maxWager;
+
+    constructor(address token, address handler, address provider)
+        VRFGameBase(token, handler, provider)
+    {}
+
+    function setWagerLimits(uint256 min, uint256 max) external onlyOwner {
+        minWager = min;
+        maxWager = max;
+    }
+
+    function flip(
+        uint256 wager,
+        bool headsGuess,
+        address referrer
+    ) external nonReentrant returns (uint256 requestId) {
+        require(wager >= minWager && wager <= maxWager, "wager out of range");
+
+        // 1. Collect bet and process fees
+        uint256 netStake = _collectAndProcessBet(msg.sender, referrer, wager);
+
+        // 2. Calculate max payout (2x the wager for a coin flip)
+        uint256 maxPayout = wager * 2;
+
+        // 3. Lock liquidity for this pending bet
+        _lockExposure(maxPayout, 0);
+
+        // 4. Request one random number in range [0, 2)
+        RandomDeriveLib.Range[] memory ranges = new RandomDeriveLib.Range[](1);
+        ranges[0] = RandomDeriveLib.Range({min: 0, max: 2});
+        requestId = randomProvider.requestRandomNumbers(ranges);
+
+        // 5. Store pending state
+        pendingFlips[requestId] = PendingFlip({
+            player: msg.sender,
+            wager: wager,
+            netStake: netStake,
+            maxPayout: maxPayout,
+            headsGuess: headsGuess,
+            exists: true
+        });
+
+        emit FlipStarted(requestId, msg.sender, wager, headsGuess);
+    }
+
+    function fulfillRandomness(
+        uint256 requestId,
+        uint256, // raw randomWord (unused)
+        uint256[] memory derivedValues
+    ) external override onlyRandomProvider nonReentrant {
+        PendingFlip memory f = pendingFlips[requestId];
+        require(f.exists, "unknown request");
+
+        // 6. Unlock exposure
+        _unlockExposure(f.maxPayout, 0);
+        delete pendingFlips[requestId];
+
+        // 7. Resolve: 0 = heads, 1 = tails
+        bool isHeads = derivedValues[0] == 0;
+        bool won = (isHeads == f.headsGuess);
+
+        // 8. Pay winner
+        uint256 payout;
+        if (won) {
+            payout = f.maxPayout;
+            _payPlayer(f.player, payout);
+        }
+
+        emit FlipResolved(requestId, f.player, won, payout);
+    }
+
+    function handleRandomFailure(
+        uint256 requestId,
+        bytes32, // reason
+        bytes calldata // details
+    ) external override onlyRandomProvider nonReentrant {
+        PendingFlip memory f = pendingFlips[requestId];
+        if (!f.exists) return;
+
+        // 9. On VRF failure: unlock exposure, refund the player
+        _unlockExposure(f.maxPayout, 0);
+        delete pendingFlips[requestId];
+
+        _payPlayer(f.player, f.netStake);
+        emit FlipFailed(requestId, f.player);
+    }
+}
+```
+
+### Key Patterns
+
+**Requesting randomness:**
+```solidity
+RandomDeriveLib.Range[] memory ranges = new RandomDeriveLib.Range[](N);
+ranges[0] = RandomDeriveLib.Range({min: 0, max: 100}); // [0, 100)
+// ... more ranges as needed
+uint256 requestId = randomProvider.requestRandomNumbers(ranges);
+```
+
+The `derivedValues` array in the callback will contain one value per range, already bounded to `[min, max)`.
+
+**Exposure locking flow:**
+1. `_lockExposure(maxPayout, jackpotContribution)` — before storing the pending bet.
+2. `_unlockExposure(maxPayout, jackpotContribution)` — first thing in both `fulfillRandomness` and `handleRandomFailure`.
+3. Always `delete` the pending bet after unlocking.
+
+**Failure handling:**
+- Always implement `handleRandomFailure`. At minimum: unlock exposure and refund the player's net stake.
+- Use early `return` (not `revert`) if the request is unknown, to avoid blocking the provider.
+
+### Constructor Arguments
+
+| Param | Description |
+|---|---|
+| `token` | ERC20 token address |
+| `handler` | PaymentHandler address |
+| `provider` | RandomProviderV2 address |
+
+---
+
+## 5. Tier 3 — On-Chain Game with VRF + Jackpot
+
+Use this tier for games where players can participate in the progressive jackpot. This adds `JackpotClient` as a second parent alongside `VRFGameBase`.
+
+### Additions over Tier 2
+
+```solidity
+import {JackpotClient} from "./base/JackpotClient.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract MyJackpotGame is VRFGameBase, JackpotClient {
+
+    // REQUIRED: bridge the token from BaseGame to JackpotClient
+    function _jackpotToken() internal view override returns (IERC20) {
+        return evaToken;
+    }
+
+    // Expose setJackpot to the owner
+    function setJackpot(address newJackpot) external onlyOwner {
+        _setJackpot(newJackpot);
+    }
+
+    // ... rest of game logic
+}
+```
+
+> **Important:** You must explicitly `import IERC20` in the concrete contract because the `_jackpotToken()` override references it, and it may not be directly visible through the inheritance chain.
+
+### Jackpot Integration Points
+
+There are three operations a game performs with the jackpot, all happening inside the VRF callback (`fulfillRandomness`):
+
+#### 1. Deposit contribution
+
+Every resolved bet should deposit its jackpot contribution to grow the pot:
+
+```solidity
+_depositToJackpot(spin.jackpotContribution);
+```
+
+This calls `jackpot.addFunds(amount)`. The game must have approved the jackpot contract for token transfers — `_setJackpot` handles this automatically.
+
+#### 2. Enter the player
+
+If the player is participating in the jackpot and the game's randomness lands on the jackpot outcome:
+
+```solidity
+uint256 jackpotRoll = derivedValues[JACKPOT_ROLL_INDEX];
+uint256 jackpotPayout = _enterJackpot(player, betAmount, jackpotRoll);
+```
+
+The `jackpotRoll` must be a random value in `[0, jackpotRollCap)`. Request this as one of your `RandomDeriveLib.Range` entries:
+
+```solidity
+ranges[N] = RandomDeriveLib.Range({
+    min: 0,
+    max: uint128(jackpotRollCap)
+});
+```
+
+#### 3. Pre-flight payability check
+
+Before locking exposure, verify the jackpot can pay out:
+
+```solidity
+if (participateInJackpot) {
+    _ensureJackpotPayable(betAmount);
+}
+```
+
+### Jackpot Outcome Structure
+
+The jackpot resolves outcomes based on `outcomeIndex`:
+
+| Index | Type | Description |
+|---|---|---|
+| 0 | Miss | No reward |
+| 1 | Consolation 1 | 1.2x bet from consolation pot |
+| 2 | Consolation 2 | 1.5x bet from consolation pot |
+| 3–11 | Tier win | Wins tier 0–8 prize from the corresponding tier pot |
+
+Tier wins advance the player through the jackpot progression. Tier 8 is terminal (the grand jackpot).
+
+### Complete Pattern (inside fulfillRandomness)
+
+```solidity
+function fulfillRandomness(
+    uint256 requestId,
+    uint256,
+    uint256[] memory derivedValues
+) external override onlyRandomProvider nonReentrant {
+    PendingBet memory bet = pendingBets[requestId];
+    require(bet.exists, "unknown");
+
+    _unlockExposure(bet.maxPayout, bet.jackpotContribution);
+    delete pendingBets[requestId];
+
+    // Always deposit the jackpot contribution
+    _depositToJackpot(bet.jackpotContribution);
+
+    // Resolve game logic using derivedValues[0..N-1]
+    bool won = /* your game logic */;
+    uint256 payout;
+    uint256 jackpotPayout;
+
+    if (/* jackpot outcome */ && bet.participatingInJackpot) {
+        uint256 jackpotRoll = derivedValues[JACKPOT_ROLL_INDEX];
+        jackpotPayout = _enterJackpot(bet.player, bet.wager, jackpotRoll);
+    } else if (won) {
+        payout = bet.maxPayout;
+        _payPlayer(bet.player, payout);
+    }
+
+    emit BetResolved(requestId, bet.player, won, payout, jackpotPayout);
+}
 ```
 
 ---
 
-## Registering Your Game
+## 6. Admin Registration Checklist
 
-After deploying your game contract, register it with the system:
+After deploying a new game contract, the ecosystem admin must register it in several places. The exact steps depend on the tier.
 
-### 1. Register in PaymentHandler
+### All Tiers
 
-```solidity
-// From owner wallet
-handler.registerGame(
-    gameAddress,          // Your game contract
-    payoutTarget,         // Where netAmount goes (usually gameAddress)
-    feeRecipient,         // Where house edge goes (house wallet)
-    200,                  // houseEdgeBps: 2% house edge
-    200                   // referralBps: 2% referral fee
-);
+```
+1. PaymentHandler.registerGame(
+       gameAddress,        // the new game contract
+       payoutTarget,       // where net stakes go (usually gameAddress itself)
+       feeRecipient,       // house fee wallet
+       houseEdgeBps,       // e.g. 200 = 2%
+       referralBps         // e.g. 200 = 2%
+   )
 
-// Enable the game
-handler.setGameStatus(gameAddress, true);
+2. PaymentHandler.setGameStatus(gameAddress, true)
+
+3. Fund the game with liquidity:
+   token.transfer(gameAddress, initialLiquidity)
 ```
 
-### 2. Register in RandomProvider (for VRF)
+### Tier 2 & 3 (VRF games) — add:
 
-```solidity
-randomProvider.setConsumerStatus(
-    gameAddress,          // Your game contract
-    true,                 // Enabled
-    7                     // Max ranges (number of random values needed)
-);
+```
+4. RandomProviderV2.setConsumerStatus(gameAddress, true, maxRanges)
+   // maxRanges = number of random values per request (e.g. 7 for roulette)
 ```
 
-### 3. Register in Jackpot (for jackpot contributions)
+### Tier 3 (Jackpot games) — add:
+
+```
+5. ProgressiveJackpotV2.registerGame(gameAddress, outcomes)
+   // outcomes = array of OutcomeConfig structs (miss, consolations, tier awards)
+
+6. ProgressiveJackpotV2.setGameStatus(gameAddress, true)
+
+7. ProgressiveJackpotV2.setGameFallback(gameAddress, fallbackIndex)
+   // fallbackIndex = default outcome index when no probability matches (usually 0 = miss)
+
+8. On the game contract itself:
+   game.setJackpot(jackpotAddress)
+```
+
+### Outcome Configuration for Jackpot Registration
+
+The `outcomes` array follows this structure:
 
 ```solidity
-// Build outcomes array
-OutcomeConfig[] memory outcomes = new OutcomeConfig[](12);
+OutcomeConfig[] outcomes;
 
-// Outcome 0: Pure lose
+// Index 0: Miss (fallback)
 outcomes[0] = OutcomeConfig({
     enabled: true,
     tierAdvance: 0,
     tierResetTo: 0,
-    consolationMultiplier: 0,
+    consolationMultiplier: 0,    // no consolation
     awardsTier: false
 });
 
-// Outcome 1: Consolation 1.2x
+// Index 1: Consolation 1.2x
 outcomes[1] = OutcomeConfig({
     enabled: true,
     tierAdvance: 0,
     tierResetTo: 0,
-    consolationMultiplier: 12000, // 1.2x
+    consolationMultiplier: 12000, // 1.2x in bps
     awardsTier: false
 });
 
-// Outcome 2: Consolation 1.5x
+// Index 2: Consolation 1.5x
 outcomes[2] = OutcomeConfig({
     enabled: true,
     tierAdvance: 0,
     tierResetTo: 0,
-    consolationMultiplier: 15000, // 1.5x
+    consolationMultiplier: 15000, // 1.5x in bps
     awardsTier: false
 });
 
-// Outcomes 3-11: Tier awards (one per tier)
-for (uint8 i = 0; i < 9; i++) {
-    outcomes[3 + i] = OutcomeConfig({
+// Indices 3–11: Tier 0 through Tier 8
+for (uint8 tier = 0; tier < 9; tier++) {
+    outcomes[3 + tier] = OutcomeConfig({
         enabled: true,
-        tierAdvance: i == 8 ? 0 : 1, // Terminal tier doesn't advance
+        tierAdvance: (tier == 8) ? 0 : 1, // terminal tier doesn't advance
         tierResetTo: 0,
         consolationMultiplier: 0,
         awardsTier: true
     });
 }
-
-// Register game with outcomes
-jackpot.registerGame(gameAddress, outcomes);
-jackpot.setGameStatus(gameAddress, true);
-jackpot.setGameFallback(gameAddress, 0); // 0 = lose outcome as fallback
 ```
 
 ---
 
-## Payment Flow
+## 7. Frontend Integration
 
-When a player places a 100 EVA bet:
+### Player Approval (Critical Change in V5)
 
-| Step | Amount | Recipient | Description |
-|------|--------|-----------|-------------|
-| 1. Player bets | 100 EVA | - | Taken from player |
-| 2. House edge | 2 EVA | House wallet | 2% fee |
-| 3. Referral fee | 2 EVA | Referral system | Distributed across 5 levels |
-| 4. **Net to game** | **96 EVA** | Game contract | What your game receives |
-| 5. Jackpot contrib | 3.36 EVA | Jackpot | 3.5% of net |
-| 6. **Game stake** | **92.64 EVA** | Game logic | Used for win/lose calculation |
+In V5, players must approve **each game contract** they interact with — not the PaymentHandler.
 
-### Referral Distribution (of the 2 EVA)
+```typescript
+// Before playing, ensure the player has approved the game
+const allowance = await token.read.allowance([playerAddress, gameAddress]);
+if (allowance < betAmount) {
+    await token.write.approve([gameAddress, approvalAmount]);
+}
+```
 
-| Level | Share | Amount |
-|-------|-------|--------|
-| Level 1 (direct referrer) | 70% | 1.40 EVA |
-| Level 2 | 12% | 0.24 EVA |
-| Level 3 | 9% | 0.18 EVA |
-| Level 4 | 6% | 0.12 EVA |
-| Level 5 | 3% | 0.06 EVA |
+If using an "approve once" UX pattern, approve `type(uint256).max`:
 
----
+```typescript
+await token.write.approve([gameAddress, MaxUint256]);
+```
 
-## Jackpot System
+### Listening for Events
 
-The ProgressiveJackpotV2 has a **9-tier progressive system** with per-tier pots.
+**Tier 1 (off-chain game):**
+```typescript
+// Watch for BetPlaced, then resolve off-chain, then call payWinner
+```
 
-### Tier Configuration
+**Tier 2/3 (VRF games):**
+```typescript
+// 1. Submit bet → get requestId from tx receipt (parse SpinStarted / FlipStarted event)
+// 2. Poll: read pendingBets(requestId) until exists == false
+// 3. Fetch resolution event (SpinResolved / FlipResolved) from logs
+```
 
-| Tier | Entry Cost | Pot Share | Win Prize |
-|------|------------|-----------|-----------|
-| 0 | 0.5 EVA | 10% | Tier 0 pot balance |
-| 1 | 0.5 EVA | 10% | Tier 1 pot balance |
-| 2 | 0.5 EVA | 10% | Tier 2 pot balance |
-| 3 | 1 EVA | 10% | Tier 3 pot balance |
-| 4 | 1 EVA | 10% | Tier 4 pot balance |
-| 5 | 1 EVA | 10% | Tier 5 pot balance |
-| 6 | 2 EVA | 10% | Tier 6 pot balance |
-| 7 | 2 EVA | 10% | Tier 7 pot balance |
-| 8 | 3 EVA | 20% | Tier 8 pot balance |
+The polling pattern is necessary because VRF callbacks arrive in a separate transaction (typically 5–30 seconds on Arbitrum).
 
-### How Jackpot Contributions Work
+### Multiple Game Approvals
 
-**Flow:**
-1. Game approves jackpot to spend tokens (once, in `setJackpot()`)
-2. Game calls `jackpot.addFunds(3.36 EVA)` 
-3. Jackpot pulls tokens from game via `safeTransferFrom`
-4. Jackpot distributes to tier pots based on shares
-5. Game calls `jackpot.processJackpotEntry(player, amount, roll)` for player's chance
-
-When your game contributes 3.36 EVA to the jackpot:
-
-| Tier Pot | Share | Amount Added |
-|----------|-------|--------------|
-| Tier 0 | 10% | 0.336 EVA |
-| Tier 1 | 10% | 0.336 EVA |
-| Tier 2 | 10% | 0.336 EVA |
-| Tier 3 | 10% | 0.336 EVA |
-| Tier 4 | 10% | 0.336 EVA |
-| Tier 5 | 10% | 0.336 EVA |
-| Tier 6 | 10% | 0.336 EVA |
-| Tier 7 | 10% | 0.336 EVA |
-| Tier 8 | 20% | 0.672 EVA |
-
-### Probability Scaling
-
-- **Starting probability**: 0.1% per tier
-- **Max probability**: 20% per tier
-- **Increment per entry**: 0.03% per entry
-
-Probability increases with each entry until someone wins that tier, then resets to minimum.
-
-### Possible Outcomes When Processing Jackpot Entry
-
-| Outcome | Probability | Result |
-|---------|-------------|--------|
-| Lose | ~82% | Nothing extra |
-| Consolation 1.2x | 12% | Bet × 1.2 returned |
-| Consolation 1.5x | 6% | Bet × 1.5 returned |
-| **Win Current Tier** | 0.1%-20% | Entire tier pot balance |
-
-When a player wins a tier:
-1. They receive that tier's entire pot balance
-2. They advance to the next tier (or reset if tier 8)
-3. The tier's probability resets to minimum
+If your dApp has multiple games, each requires its own approval. This is intentional — it limits a player's risk exposure to one game at a time. Consider a "game lobby" UI that requests approval when a player first enters a specific game.
 
 ---
 
-## Need Help?
+## 8. Migration from V4
 
-- Check the example contracts in `/contracts/`
-- Review deployment scripts in `/scripts/mainnet/` and `/scripts/testnet/`
-- Look at `SingleRandomRouletteV2.sol` for a complete on-chain game example with jackpot integration
+### What Changed
+
+| Aspect | V4 (Before) | V5 (After) |
+|---|---|---|
+| Player approval target | PaymentHandler | Individual game contracts |
+| Token pull direction | Handler pulls from player | Game pulls from player, handler pulls from game |
+| `paymentHandler` variable | `immutable` | Mutable with `setPaymentHandler()` |
+| Handler approval | Manual in constructor | Automatic in `BaseGame` constructor + `setPaymentHandler` |
+| Code reuse | Copy-paste across games | Inherit from `BaseGame` / `VRFGameBase` / `JackpotClient` |
+| Jackpot approval | Manual | Automatic via `_setJackpot()` |
+
+### For Existing Game Contracts
+
+If migrating an existing V4 game to V5 base contracts:
+
+1. **Replace direct token/handler logic** with base contract inheritance:
+   - Remove `evaToken.safeTransferFrom(msg.sender, ...)` in play functions — use `_collectAndProcessBet` instead.
+   - Remove `evaToken.safeTransfer(player, ...)` in payout logic — use `_payPlayer` instead.
+   - Remove manual `safeApprove` calls in constructors — `BaseGame` handles this.
+   - Remove `lockedExposure` state and manual lock/unlock math — use `_lockExposure` / `_unlockExposure`.
+
+2. **Update constructor** to forward to the base:
+   ```solidity
+   // Before (V4)
+   constructor(address _handler, address _token) {
+       paymentHandler = IPaymentHandler(_handler);
+       evaToken = IERC20(_token);
+       evaToken.safeApprove(_handler, type(uint256).max);
+   }
+
+   // After (V5)
+   constructor(address _handler, address _provider, address _token)
+       VRFGameBase(_token, _handler, _provider)
+   {}
+   ```
+
+3. **Remove duplicated access control** — `Ownable2Step` and `ReentrancyGuard` are inherited from `BaseGame`.
+
+4. **Update frontend** — change approval target from PaymentHandler to the game contract address.
+
+5. **Re-register** the game in PaymentHandler if the contract address changed.
+
+### For the Frontend / SDK
+
+The only user-facing change: **approval target**. Update every `token.approve(handlerAddress, ...)` call to `token.approve(gameAddress, ...)`. Everything else (event signatures, function signatures) remains compatible.
+
+---
+
+## 9. Common Pitfalls / FAQ
+
+### Q: My game reverts with "ERC20: insufficient allowance" on the first bet.
+
+The player has not approved your game contract. In V5, players approve the **game**, not the PaymentHandler. Ensure the frontend calls `token.approve(gameAddress, amount)` before the play transaction.
+
+### Q: processDirectBetFromGame reverts with "Game not registered".
+
+The admin has not registered your game in the PaymentHandler. Run:
+```
+PaymentHandler.registerGame(gameAddress, payoutTarget, feeRecipient, houseEdgeBps, referralBps)
+PaymentHandler.setGameStatus(gameAddress, true)
+```
+
+### Q: My VRF callback never arrives.
+
+Check that:
+1. `RandomProviderV2.setConsumerStatus(gameAddress, true, maxRanges)` was called.
+2. The VRF subscription has sufficient LINK funding.
+3. The `RandomProviderV2` address is registered as a consumer on the Chainlink VRF coordinator.
+
+### Q: `LiquidityShortfall` when placing a bet.
+
+The game contract does not hold enough tokens to cover the maximum payout of the pending bet plus all other locked exposure. Fund the game with more liquidity: `token.transfer(gameAddress, amount)`.
+
+### Q: JackpotNotConfigured revert.
+
+The game has a non-zero `jackpotContributionBps` but `setJackpot()` was never called (or was set to `address(0)`). Call `game.setJackpot(jackpotAddress)`.
+
+### Q: Can I change the PaymentHandler after deployment?
+
+Yes. Call `game.setPaymentHandler(newHandlerAddress)`. This automatically revokes the old handler's approval and grants approval to the new one. You must also register the game in the new handler.
+
+### Q: Do I need to approve the jackpot contract manually?
+
+No. `_setJackpot()` (called via `setJackpot()`) automatically approves the jackpot contract for `type(uint256).max` tokens and revokes the old one.
+
+### Q: What if the jackpot pot is empty when a player wins?
+
+The jackpot degrades gracefully — `_handleOutcome` returns 0 payout if the tier pot or consolation pot is empty. The game will not revert.
+
+### Q: How do I test my game locally?
+
+Use Hardhat's local network. Deploy all ecosystem contracts (Token, PaymentHandler, MultiLevelReferral, RandomProviderV2, ProgressiveJackpotV2) using the deployment script pattern from `scripts/testnet/deploy-arbitrum-sepolia-v5.ts`, then deploy your game and register it. For VRF games on a local network, you will need to mock the VRF callback by calling `fulfillRandomness` directly from a test account set as the provider.
+
+### Q: What is the minimum I need to implement for a new game?
+
+For the absolute minimum (Tier 1), you need:
+1. A contract inheriting `BaseGame`.
+2. A `play()` function that calls `_collectAndProcessBet()`.
+3. A `payWinner()` function that calls `_payPlayer()`.
+4. Admin registration in `PaymentHandler`.
+
+That is roughly 30 lines of custom code.
