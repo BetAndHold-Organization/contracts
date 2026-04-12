@@ -101,14 +101,9 @@ const JACKPOT_ABI = [
     outputs: [{ name: "", type: "uint256" }],
   },
   {
-    type: "function", name: "directBetRequests", stateMutability: "view",
-    inputs: [{ name: "requestId", type: "uint256" }],
-    outputs: [
-      { name: "bettor", type: "address" },
-      { name: "amount", type: "uint256" },
-      { name: "tierIndex", type: "uint8" },
-      { name: "settled", type: "bool" },
-    ],
+    type: "function", name: "nextEntryId", stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
   },
   {
     type: "function", name: "getTierProbability", stateMutability: "view",
@@ -702,13 +697,6 @@ async function waitForDirectBetResolution(
 
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
-
-    const req = await pub.readContract({
-      address: jackpotAddr, abi: JACKPOT_ABI, functionName: "directBetRequests", args: [requestId],
-    }) as any[];
-
-    if (!req[3]) continue; // settled = false, still pending
-
     const currentBlock = await pub.getBlockNumber();
 
     const settledLogs = await pub.getLogs({
@@ -728,12 +716,6 @@ async function waitForDirectBetResolution(
         failed: false,
       };
     }
-
-    return {
-      index, requestId: requestId.toString(),
-      tierIndex, outcomeIndex: -1, cost, payout: 0n,
-      outcomeType: "miss", failed: true, failReason: "SETTLED_NO_EVENT",
-    };
   }
 
   return {

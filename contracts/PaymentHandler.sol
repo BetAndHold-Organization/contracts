@@ -35,11 +35,13 @@ contract PaymentHandler is Ownable2Step, ReentrancyGuard {
     bool public blacklistEnabled;
     mapping(address => bool) public whitelist;
     mapping(address => bool) public blacklist;
+    mapping(address => bool) public selfExcluded;
 
     event WhitelistStatusChanged(bool enabled);
     event BlacklistStatusChanged(bool enabled);
     event WhitelistUpdated(address indexed account, bool value);
     event BlacklistUpdated(address indexed account, bool value);
+    event SelfExcluded(address indexed account);
     event GameRegistered(
         address indexed game,
         address payoutTarget,
@@ -79,10 +81,17 @@ contract PaymentHandler is Ownable2Step, ReentrancyGuard {
         emit ReferralContractSet(referralContract_);
     }
 
-/// Access from blacklist and whitelist functions
     function _checkAccess(address player) internal view {
+        if (selfExcluded[player]) revert("Self-excluded");
         if (blacklistEnabled && blacklist[player]) revert("Blacklisted");
         if (whitelistEnabled && !whitelist[player]) revert("Not whitelisted");
+    }
+
+    /// @notice Permanently self-exclude from all games. Irreversible.
+    function selfExclude() external {
+        require(!selfExcluded[msg.sender], "Already excluded");
+        selfExcluded[msg.sender] = true;
+        emit SelfExcluded(msg.sender);
     }
 
         function setWhitelistEnabled(bool enabled) external onlyOwner {

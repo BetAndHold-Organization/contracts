@@ -54,8 +54,8 @@ const TIER_COSTS = [
 
 // Tier probability (ppm = parts-per-million, 1_000_000 = 100%)
 const PROB_MIN_PPM = 1_000;              // 0.10% starting probability
-const PROB_MAX_PPM = 50_000;             // 5.00% max probability
-const PROB_INCREMENT_PPM = 300;          // +0.03% per entry since last win
+const PROB_MAX_PPM = 10_000;             // 1.00% max probability
+const PROB_INCREMENT_PPM = 100;          // +0.01% per entry (90 steps to reach max)
 
 // Consolation pot
 const CONSOLATION_SHARE_BPS = 500;       // 5% of each deposit → consolation pot
@@ -70,7 +70,7 @@ const INITIAL_JACKPOT_FUNDING = parseEther(process.env.MAINNET_JACKPOT_SEED || "
 const INITIAL_ROULETTE_LIQUIDITY = parseEther(process.env.MAINNET_ROULETTE_SEED || "0");
 
 // ─── Operational ────────────────────────────────────────────────────────
-const WHITELIST_ENABLED = (process.env.MAINNET_WHITELIST_ENABLED || "true").trim() === "true";
+const WHITELIST_ENABLED = false;          // Open access — anyone can play
 const VERIFY = true;
 
 // ═══════════════════════════════════════════════════════════════════════════

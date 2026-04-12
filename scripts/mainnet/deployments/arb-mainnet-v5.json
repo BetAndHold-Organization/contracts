@@ -1,0 +1,68 @@
+{
+  "version": "V5",
+  "deployedAt": "2026-04-08T22:10:51.124Z",
+  "network": "arbitrum",
+  "token": "0x45D9831d8751B2325f3DBf48db748723726e1C8c",
+  "randomProvider": "0x6513baa6c53a570ec899bb1504a95f160b8d7850",
+  "handler": "0xabe66fc056dd0e116b90201e487ea102fd7df1ba",
+  "referral": "0xf359892154589e9459c6f979d5de37a2755cf0e9",
+  "jackpot": "0xb8dbb7d52be61fc30b7f47e11ddb9af472c6a2ef",
+  "roulette": "0x29a597c324dce8f075d55acc7b0e65563ae180ab",
+  "house": "0x2132c5e539F1Da6090424644576ABB5C5aDcdbbd",
+  "deployer": "0xe7e486f42fd93148978fe83326be7f3ce8e3a16a",
+  "notes": "V5: BaseGame/VRFGameBase/JackpotClient + new payment flow (player->game->handler)",
+  "previousV4": {
+    "handler": "0xce9f2e4586d674162610daec693ae9b1083c11d4",
+    "randomProvider": "0xc7b8e1c6baf325799f7e536fbe6c7eee65256d47",
+    "referral": "0xd64a1b0b213877cde3f9b4a0fa93bffa4878a71b",
+    "jackpot": "0x55c4bb3b11dbdb048a06b3442ac4757b57ca6874",
+    "roulette": "0xb3f60ca15dea4434fa7bc364563ac1f05d4ac142"
+  },
+  "config": {
+    "houseEdgeBps": 150,
+    "referralBps": 150,
+    "referralLadder": [
+      3000,
+      2500,
+      2000,
+      1500,
+      1000
+    ],
+    "whitelistEnabled": false,
+    "tierShares": [
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      2000
+    ],
+    "tierCosts": [
+      "500000000000000000",
+      "500000000000000000",
+      "500000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "1000000000000000000",
+      "2000000000000000000",
+      "2000000000000000000",
+      "3000000000000000000"
+    ],
+    "probabilityPrecision": 1000000,
+    "probMinPpm": 1000,
+    "probMaxPpm": 10000,
+    "probIncrementPpm": 100,
+    "consolationShareBps": 500,
+    "consolation1ProbPpm": 50000,
+    "consolation2ProbPpm": 20000,
+    "minWager": "100000000000000000",
+    "maxWager": "3000000000000000000",
+    "jackpotContribBps": 300,
+    "replayBps": 500,
+    "jackpotBps": 300,
+    "jackpotScaling": "DISABLED"
+  }
+}
