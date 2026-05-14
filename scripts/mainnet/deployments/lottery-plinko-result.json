@@ -1,0 +1,72 @@
+{
+  "lottery": "0x46dedcca913facb6f6fab4191b25de34c8e9cb57",
+  "txHash": "0x36ca40f23a0fc1e1e737dd801923f1115ca8eaab8bbd3739e77f1a217b360a5a",
+  "requestId": "55296250886603827286725298719618154312414161895463110541136283375299378203751",
+  "randomWord": "44469372302937058008129381723454257623974694716157526238972270004984629502296",
+  "totalTickets": "3532",
+  "playerCount": 53,
+  "numWinners": 10,
+  "executedAt": "2026-04-28T01:10:06.487Z",
+  "winners": [
+    {
+      "rank": 1,
+      "address": "0x394ecd123435e8970d88c89192fc83d6ae52aeb8",
+      "tickets": 1583,
+      "percentChance": 44.81
+    },
+    {
+      "rank": 2,
+      "address": "0xeaef0d634a43723f4304790538ebc14a7d5cfa0c",
+      "tickets": 106,
+      "percentChance": 3
+    },
+    {
+      "rank": 3,
+      "address": "0xc3a920912534ce9651298e157db3c6621a2210e0",
+      "tickets": 3,
+      "percentChance": 0.08
+    },
+    {
+      "rank": 4,
+      "address": "0xad7caef983d7785c4cc6cc8e1f3c582b8a99c195",
+      "tickets": 181,
+      "percentChance": 5.12
+    },
+    {
+      "rank": 5,
+      "address": "0x927b7232b12da00ffc34a24df7386367742c43d3",
+      "tickets": 32,
+      "percentChance": 0.9
+    },
+    {
+      "rank": 6,
+      "address": "0x4f3942d58d1058e39a8fb39efa1f11d5d9d945a3",
+      "tickets": 143,
+      "percentChance": 4.04
+    },
+    {
+      "rank": 7,
+      "address": "0x5e05555532c04eae24b25191b7d5b4269f0f0ffe",
+      "tickets": 3,
+      "percentChance": 0.08
+    },
+    {
+      "rank": 8,
+      "address": "0xfdcb2ca4b55140ebfa2529e33ec4d1706e50cde3",
+      "tickets": 403,
+      "percentChance": 11.4
+    },
+    {
+      "rank": 9,
+      "address": "0x9545997091e07b5696477d18a2ee9e7c75a3b3b9",
+      "tickets": 88,
+      "percentChance": 2.49
+    },
+    {
+      "rank": 10,
+      "address": "0xcdf2954bdff9de9db4e1c61f3a4b02d1ffbc51ba",
+      "tickets": 5,
+      "percentChance": 0.14
+    }
+  ]
+}

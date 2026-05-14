@@ -1,0 +1,43 @@
+{
+  "lottery": "0x46dedcca913facb6f6fab4191b25de34c8e9cb57",
+  "csv": "../../contracts/tickets-crash-36h-2026-05-01-00-58-54.csv",
+  "txHash": "0x9f6f94c176335c619eece676b17e45d3ebf66f64abdead076b2f113ef2202749",
+  "requestId": "108269802128340849633406968482058525440270527557325702604085148559998536013913",
+  "randomWord": "11325354185515637352051634220415242606130664180490004811089846221908091238409",
+  "totalTickets": "662",
+  "playerCount": 56,
+  "numWinners": 5,
+  "executedAt": "2026-05-01T01:02:30.747Z",
+  "winners": [
+    {
+      "rank": 1,
+      "address": "0x88db7645a43f59611e9983d13c46886b17cd9ba0",
+      "tickets": 19,
+      "percentChance": 2.87
+    },
+    {
+      "rank": 2,
+      "address": "0x4f3942d58d1058e39a8fb39efa1f11d5d9d945a3",
+      "tickets": 27,
+      "percentChance": 4.07
+    },
+    {
+      "rank": 3,
+      "address": "0x9f157d563fbf376f90fe8b3452507649a2d6a38f",
+      "tickets": 22,
+      "percentChance": 3.32
+    },
+    {
+      "rank": 4,
+      "address": "0x4402340196da28ac48608ac996d229ae78fb3f2e",
+      "tickets": 22,
+      "percentChance": 3.32
+    },
+    {
+      "rank": 5,
+      "address": "0xc86efeb23e102b927b07073ca8bf4ad9c9e518e6",
+      "tickets": 5,
+      "percentChance": 0.75
+    }
+  ]
+}

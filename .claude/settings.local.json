@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\diego\\\\OneDrive\\\\Escritorio\\\\AMT\\\\TheBurningGames_HHv3\" -Force)",
+      "Bash(Select-Object Name, Mode)",
+      "Bash(mkdir -p contracts/core contracts/token contracts/games/base contracts/games/crash/libraries contracts/interfaces/core contracts/interfaces/games/crash contracts/shared contracts/test/mocks docs/plinko)",
+      "Bash(git mv *)",
+      "Bash(git rm *)",
+      "Bash(git add *)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\diego\\OneDrive\\Escritorio\\AMT\\TheBurningGames_HHv3\\contracts"
+    ]
+  }
+}

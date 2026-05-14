@@ -1,0 +1,14 @@
+{
+  "contract": "TicketLottery",
+  "deployedAt": "2026-04-28T01:01:53.782Z",
+  "network": "arbitrum",
+  "lottery": "0x46dedcca913facb6f6fab4191b25de34c8e9cb57",
+  "vrf": {
+    "coordinator": "0x3C0Ca683b403E37668AE3DC4FB62F4B29B6f7a3e",
+    "keyHash": "0xe9f223d7d83ec85c4f78042a4845af3a1c8df7757b4997b815ce4b8d07aca68c",
+    "subscriptionId": "9486533803411485290767568987583419460952267971554719498921047686983342262059",
+    "requestConfirmations": 3,
+    "callbackGasLimit": 2500000
+  },
+  "deployer": "0xe7e486f42fd93148978fe83326be7f3ce8e3a16a"
+}

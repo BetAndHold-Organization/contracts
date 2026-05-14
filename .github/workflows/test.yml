@@ -1,0 +1,81 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, upgrades]
+  pull_request:
+    branches: [main, upgrades]
+
+# Limit one concurrent run per branch — newer pushes cancel older queued runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Compile + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile contracts
+        run: npx hardhat compile
+
+      - name: Run TypeScript + Solidity test suite
+        run: npm test
+        # 650+ tests including a 100-cycle multicallTry load test.
+        # If this starts timing out, raise timeout-minutes; do not skip tests.
+
+  static-analysis:
+    name: Slither
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Static analysis is informational — it does not gate merging. Failures here
+    # are reviewed in the PR but do not block; high-severity findings should be
+    # addressed before merging, per CONTRIBUTING.md.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Setup Python (for Slither)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Slither
+        run: pip install slither-analyzer==0.10.4
+
+      - name: Install Node dependencies (Slither parses imports)
+        run: npm ci
+
+      - name: Compile contracts (Slither reads artifacts)
+        run: npx hardhat compile
+
+      - name: Run Slither
+        # --filter-paths skips OpenZeppelin + Chainlink imports + test mocks (not platform code).
+        # --exclude-low / --exclude-informational reduce noise to actionable findings.
+        # If you want to see everything, run locally without these flags: `slither contracts/`.
+        run: |
+          slither contracts/ \
+            --filter-paths "node_modules|contracts/test/mocks|@openzeppelin|@chainlink" \
+            --exclude-low \
+            --exclude-informational \
+            --fail-high

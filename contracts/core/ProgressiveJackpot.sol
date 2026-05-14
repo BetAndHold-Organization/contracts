@@ -1,0 +1,1203 @@
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.20;
+
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "../interfaces/core/IRandomConsumer.sol";
+import {SignedActionAuth} from "../games/base/SignedActionAuth.sol";
+import {Multicallable} from "../games/base/Multicallable.sol";
+
+interface IRandomProviderMinimal {
+    function requestRandomNumber(uint256 maxNumber) external returns (uint256 requestId);
+}
+
+interface IPaymentHandler {
+    function processDirectBetFromGame(address bettor, address potentialReferrer, uint256 baseCost)
+        external
+        returns (uint256 netAmount);
+}
+
+/**
+ * @title ProgressiveJackpot
+ * @dev Progressive jackpot with per-tier pots and entry-based probability scaling.
+ *      
+ *      Key changes from V1:
+ *      - Each tier has its own pot balance
+ *      - Probability scales with entries (not balance)
+ *      - Fixed costs per tier
+ *      - Consolations paid from Tier 9 pot
+ *      - All funds distributed across tier pots based on configurable shares
+ */
+contract ProgressiveJackpot is Ownable2Step, ReentrancyGuard, IRandomConsumer, SignedActionAuth, Multicallable {
+    using SafeERC20 for IERC20;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONSTANTS
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    uint256 public constant PROBABILITY_PRECISION = 1_000_000; // parts-per-million (0.0001% granularity)
+    uint256 public constant MAX_ENTRIES = 64;
+    uint8 public constant TIER_COUNT = 9;
+    uint8 private constant FIRST_TIER_OFFSET = 3; // outcomes[3] is tier 0, outcomes[4] is tier 1, ...
+    uint8 private constant LAST_TIER_INDEX = 8;   // Tier 9 (index 8)
+
+    /// @notice EIP-712 typehash for placeDirectBetFor meta-transactions.
+    /// @dev    Includes `address game` for defense-in-depth against cross-contract replay.
+    ///         Cost is dynamic (current-tier dependent) — players limit exposure via the spend
+    ///         cap on AuthHub rather than committing to a specific cost in the signature.
+    bytes32 public constant PLACE_DIRECT_BET_TYPEHASH = keccak256(
+        "PlaceDirectBet(address game,address player,address potentialReferrer,uint256 nonce,uint256 deadline)"
+    );
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // STRUCTS (Compatible with V1 where possible)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    struct JackpotState {
+        uint8 nextTierIndex;
+        uint256 totalEntries;
+        uint256 totalJackpotsWon;
+        uint256 totalConsolationPaid;
+        address lastWinner;
+        uint256 lastWinTimestamp;
+    }
+
+    struct EntryRecord {
+        address game;
+        address player;
+        uint256 betAmount;
+        uint8 tierIndex;
+        uint8 outcomeIndex;
+        uint256 payout;
+        uint256 timestamp;
+    }
+
+    // V1-compatible TierConfig (unused fields kept for ABI compatibility)
+    struct TierConfig {
+        uint256 prizeMetric;     // Unused in V2 (prize = pot balance)
+        bool isTerminal;         // true for tier 9
+        bool isPercent;          // Unused in V2
+        uint256 fixedBetCost;    // Fixed cost to attempt this tier
+        bool useDynamicCost;     // Unused in V2 (always false)
+        uint16 costBps;          // Unused in V2
+    }
+
+    // NEW: Probability configuration per tier (units in parts-per-million)
+    struct TierProbConfig {
+        uint32 minProbPpm;       // Starting probability (e.g., 1000 = 0.1%)
+        uint32 maxProbPpm;       // Max probability (e.g., 50000 = 5%)
+        uint32 incrementPpm;     // Increase per entry (e.g., 30 = 0.003%)
+    }
+
+    // V1-compatible OutcomeConfig
+    struct OutcomeConfig {
+        bool enabled;                    // Whether this outcome is active
+        uint8 tierAdvance;               // Tiers to advance on win
+        uint8 tierResetTo;               // Reset tier if terminal
+        uint16 consolationMultiplier;    // In bps (e.g., 12000 = 1.2x)
+        bool awardsTier;                 // Whether this outcome awards a tier prize
+    }
+
+    struct GameConfig {
+        bool enabled;
+        OutcomeConfig[] outcomes;
+        uint16 maxConsolationMultiplier;
+        uint8 fallbackIdx;
+        bool fallbackSet;
+    }
+
+    struct DirectBetConfig {
+        bool enabled;
+    }
+
+    struct DirectBetRequest {
+        address bettor;
+        uint256 amount;
+        uint8 tierIndex;
+        bool settled;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // STORAGE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    IERC20 public immutable evaToken;
+    IRandomProviderMinimal public randomProvider;
+
+    // Core state
+    JackpotState public jackpotState;
+    TierConfig[] public tierConfigs;
+
+    // NEW: Per-tier pot balances
+    mapping(uint8 => uint256) public tierPotBalance;
+
+    // NEW: Tier share distribution (sum must = 10000 AFTER consolation share)
+    uint16[9] public tierShareBps;
+
+    // NEW: Per-tier probability config and state
+    mapping(uint8 => TierProbConfig) public tierProbConfigs;
+    mapping(uint8 => uint256) public tierCurrentProbBps;
+    mapping(uint8 => uint256) public tierEntriesSinceWin;
+
+    // NEW: Admin system
+    mapping(address => bool) public isAdmin;
+
+    // NEW: Consolation pot (separate from tier pots)
+    uint256 public consolationPotBalance;
+    uint16 public consolationShareBps;      // Share taken off-the-top before tier distribution (e.g., 500 = 5%)
+    
+    // NEW: Configurable consolation probabilities
+    uint32 public consolation1ProbPpm;      // Probability for 1.2x consolation in ppm (e.g., 50000 = 5%)
+    uint32 public consolation2ProbPpm;      // Probability for 1.5x consolation in ppm (e.g., 20000 = 2%)
+
+    // Game registrations
+    mapping(address => GameConfig) internal gameConfigs;
+    mapping(address => bool) public registeredGames;
+    address[] public gameList;
+
+    // Direct bet config
+    DirectBetConfig public directBetConfig;
+    OutcomeConfig[] private directOutcomes;
+    uint16 private directMaxConsolationMultiplier;
+    mapping(uint256 => DirectBetRequest) internal directBetRequests;
+    mapping(uint256 => uint256) internal directBetBaseCost;
+    mapping(uint256 => uint256) internal directBetMaxPayout;
+    uint256 public lastDirectBetBaseCost;
+    uint256 public lastDirectBetMaxPayout;
+    address public paymentHandler;
+
+    // Entry history. Per-entry detail lives on-chain; per-player indexing is
+    // expected to come from an off-chain indexer subscribed to EntryProcessed.
+    // We do NOT maintain a uint256[] index per player — that grew unboundedly
+    // and made queries increasingly expensive over a player's lifetime.
+    mapping(uint256 => EntryRecord) public entryHistory;
+    uint256 public nextEntryId;
+
+    // Fallback indices
+    uint8 private directFallbackIdx;
+    bool private directFallbackSet;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // EVENTS (V1-compatible + new)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // V1 events (unchanged signatures)
+    event GameRegistered(address indexed game);
+    event GameUpdated(address indexed game);
+    event GameStatusChanged(address indexed game, bool enabled);
+    event TierLadderUpdated(uint8 indexed index, uint256 prizeMetric, bool isPercent, bool isTerminal);
+    event LadderReset(uint8 totalTiers);
+    event FundsAdded(address indexed game, uint256 amount, uint256 newTotal);
+    event DirectBetConfigured(bool enabled);
+    event DirectBetRequested(uint256 indexed requestId, address indexed player, uint256 amount, uint8 tierIndex);
+    event DirectBetSettled(uint256 indexed requestId, address indexed player, uint8 outcomeIndex, uint256 payout);
+    event EntryProcessed(
+        uint256 indexed entryId,
+        address indexed game,
+        address indexed player,
+        uint8 tierIndex,
+        uint8 outcomeIndex,
+        uint256 payout
+    );
+    event TierWon(uint8 indexed tierIndex, address indexed player, uint256 payout);
+    event JackpotWon(address indexed player, uint256 payout);
+    event ConsolationPaid(address indexed player, uint256 payout, uint16 consolationMultiplier);
+
+    // V2 new events
+    event AdminStatusChanged(address indexed account, bool isAdmin);
+    event TierProbabilityBoosted(uint8 indexed tierIndex, uint256 simulatedEntries, uint256 newProbBps);
+    event TierProbabilityReset(uint8 indexed tierIndex, uint256 newProbBps);
+    event TierProbConfigUpdated(uint8 indexed tierIndex, uint32 minProbPpm, uint32 maxProbPpm, uint32 incrementPpm);
+    event TierSharesUpdated(uint16[9] shares);
+    event TierPotSeeded(uint8 indexed tierIndex, uint256 amount);
+    event AdminFundsDistributed(address indexed admin, uint256 amount);
+    
+    // V2.1 consolation events
+    event ConsolationShareUpdated(uint16 shareBps);
+    event ConsolationProbabilitiesUpdated(uint32 consolation1ProbPpm, uint32 consolation2ProbPpm);
+    event ConsolationPotSeeded(uint256 amount);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ERRORS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    error InvalidGame(address game);
+    error GameDisabled(address game);
+    error InvalidProbabilityTable();
+    error InvalidTierConfiguration();
+    error ProbabilityOverflow();
+    error UnauthorizedCaller();
+    error InsufficientFunds();
+    error InvalidShares();
+    error NotAdmin();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MODIFIERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    modifier onlyAdmin() {
+        if (!isAdmin[msg.sender] && msg.sender != owner()) revert NotAdmin();
+        _;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONSTRUCTOR
+    // ═══════════════════════════════════════════════════════════════════════
+
+    constructor(address _evaToken, address _randomProvider, address _authHub)
+        SignedActionAuth("ProgressiveJackpot", "1", _authHub)
+    {
+        require(_evaToken != address(0), "Invalid token");
+        require(_randomProvider != address(0), "Invalid provider");
+        evaToken = IERC20(_evaToken);
+        randomProvider = IRandomProviderMinimal(_randomProvider);
+
+        // Default shares: 6.25% each for tiers 1-8, 50% for tier 9
+        for (uint8 i = 0; i < 8; i++) {
+            tierShareBps[i] = 625;
+        }
+        tierShareBps[8] = 5000;
+        
+        // Default consolation config
+        consolationShareBps = 500;          // 5% off-the-top for consolation pot
+        consolation1ProbPpm = 120_000;       // 12% chance for 1.2x
+        consolation2ProbPpm = 60_000;        // 6% chance for 1.5x
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ADMIN MANAGEMENT
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function setAdmin(address account, bool status) external onlyOwner {
+        require(account != address(0), "Invalid address");
+        isAdmin[account] = status;
+        emit AdminStatusChanged(account, status);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // TIER SHARE CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function setTierShares(uint16[9] calldata shares) external onlyOwner {
+        uint256 total;
+        for (uint8 i = 0; i < 9; i++) {
+            total += shares[i];
+        }
+        if (total != 10_000) revert InvalidShares();
+        
+        for (uint8 i = 0; i < 9; i++) {
+            tierShareBps[i] = shares[i];
+        }
+        emit TierSharesUpdated(shares);
+    }
+
+    function getTierShares() external view returns (uint16[9] memory) {
+        return tierShareBps;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONSOLATION CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Set the consolation share (taken off-the-top before tier distribution)
+    /// @param shareBps Share in basis points (e.g., 500 = 5%)
+    function setConsolationShare(uint16 shareBps) external onlyOwner {
+        require(shareBps <= 2000, "Max 20%");  // Sanity check
+        consolationShareBps = shareBps;
+        emit ConsolationShareUpdated(shareBps);
+    }
+
+    /// @notice Set the consolation win probabilities
+    /// @param prob1Ppm Probability for 1.2x consolation in ppm (e.g., 120000 = 12%)
+    /// @param prob2Ppm Probability for 1.5x consolation in ppm (e.g., 60000 = 6%)
+    function setConsolationProbabilities(uint32 prob1Ppm, uint32 prob2Ppm) external onlyOwner {
+        require(uint256(prob1Ppm) + uint256(prob2Ppm) <= 500_000, "Total > 50%");
+        consolation1ProbPpm = prob1Ppm;
+        consolation2ProbPpm = prob2Ppm;
+        emit ConsolationProbabilitiesUpdated(prob1Ppm, prob2Ppm);
+    }
+
+    /// @notice Get consolation configuration
+    function getConsolationConfig() external view returns (
+        uint256 potBalance,
+        uint16 shareBps,
+        uint32 prob1Ppm,
+        uint32 prob2Ppm
+    ) {
+        return (
+            consolationPotBalance,
+            consolationShareBps,
+            consolation1ProbPpm,
+            consolation2ProbPpm
+        );
+    }
+
+    /// @notice Seed the consolation pot directly
+    function seedConsolationPot(uint256 amount) external onlyOwner nonReentrant {
+        require(amount > 0, "Amount must be positive");
+        evaToken.safeTransferFrom(msg.sender, address(this), amount);
+        consolationPotBalance += amount;
+        emit ConsolationPotSeeded(amount);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PROBABILITY CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function setTierProbConfig(
+        uint8 tierIndex,
+        uint32 minProbPpm,
+        uint32 maxProbPpm,
+        uint32 incrementPpm
+    ) external onlyOwner {
+        require(tierIndex < TIER_COUNT, "Invalid tier");
+        require(minProbPpm <= maxProbPpm, "min > max");
+        require(maxProbPpm <= PROBABILITY_PRECISION, "max > 100%");
+        
+        tierProbConfigs[tierIndex] = TierProbConfig({
+            minProbPpm: minProbPpm,
+            maxProbPpm: maxProbPpm,
+            incrementPpm: incrementPpm
+        });
+        
+        if (tierCurrentProbBps[tierIndex] == 0) {
+            tierCurrentProbBps[tierIndex] = minProbPpm;
+        }
+        
+        emit TierProbConfigUpdated(tierIndex, minProbPpm, maxProbPpm, incrementPpm);
+    }
+
+    function setAllTierProbConfigs(
+        uint32 minProbPpm,
+        uint32 maxProbPpm,
+        uint32 incrementPpm
+    ) external onlyOwner {
+        require(minProbPpm <= maxProbPpm, "min > max");
+        require(maxProbPpm <= PROBABILITY_PRECISION, "max > 100%");
+        
+        for (uint8 i = 0; i < TIER_COUNT; i++) {
+            tierProbConfigs[i] = TierProbConfig({
+                minProbPpm: minProbPpm,
+                maxProbPpm: maxProbPpm,
+                incrementPpm: incrementPpm
+            });
+            
+            if (tierCurrentProbBps[i] == 0) {
+                tierCurrentProbBps[i] = minProbPpm;
+            }
+            
+            emit TierProbConfigUpdated(i, minProbPpm, maxProbPpm, incrementPpm);
+        }
+    }
+
+    function getTierProbability(uint8 tierIndex) external view returns (
+        uint256 currentProbPpm,
+        uint256 entriesSinceWin,
+        uint32 minProbPpm,
+        uint32 maxProbPpm,
+        uint32 incrementPpm
+    ) {
+        require(tierIndex < TIER_COUNT, "Invalid tier");
+        TierProbConfig memory config = tierProbConfigs[tierIndex];
+        return (
+            tierCurrentProbBps[tierIndex],
+            tierEntriesSinceWin[tierIndex],
+            config.minProbPpm,
+            config.maxProbPpm,
+            config.incrementPpm
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ADMIN PROBABILITY BOOST
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function boostTierProbability(uint8 tierIndex, uint256 simulatedEntries) external onlyAdmin {
+        require(tierIndex < TIER_COUNT, "Invalid tier");
+        
+        TierProbConfig memory config = tierProbConfigs[tierIndex];
+        uint256 boost = simulatedEntries * config.incrementPpm;
+        uint256 newProb = tierCurrentProbBps[tierIndex] + boost;
+        
+        if (newProb > config.maxProbPpm) {
+            newProb = config.maxProbPpm;
+        }
+        
+        tierCurrentProbBps[tierIndex] = newProb;
+        tierEntriesSinceWin[tierIndex] += simulatedEntries;
+        
+        emit TierProbabilityBoosted(tierIndex, simulatedEntries, newProb);
+    }
+
+    function resetTierProbability(uint8 tierIndex) external onlyOwner {
+        require(tierIndex < TIER_COUNT, "Invalid tier");
+        
+        uint32 minProb = tierProbConfigs[tierIndex].minProbPpm;
+        tierCurrentProbBps[tierIndex] = minProb;
+        tierEntriesSinceWin[tierIndex] = 0;
+        
+        emit TierProbabilityReset(tierIndex, minProb);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // TIER LADDER (V1-compatible)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function setTierLadder(TierConfig[] calldata tiers) external onlyOwner {
+        require(tiers.length == TIER_COUNT, "Must have 9 tiers");
+        
+        delete tierConfigs;
+        for (uint256 i = 0; i < tiers.length; i++) {
+            tierConfigs.push(tiers[i]);
+            emit TierLadderUpdated(uint8(i), tiers[i].prizeMetric, tiers[i].isPercent, tiers[i].isTerminal);
+        }
+        
+        jackpotState.nextTierIndex = 0;
+        emit LadderReset(uint8(tiers.length));
+    }
+
+    function getTierLadder() external view returns (TierConfig[] memory tiers) {
+        tiers = new TierConfig[](tierConfigs.length);
+        for (uint256 i = 0; i < tierConfigs.length; i++) {
+            tiers[i] = tierConfigs[i];
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // FUNDING
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice PaymentHandler routes the platform-wide jackpot share here on every bet.
+    /// @dev    Caller is restricted to PaymentHandler — no nonReentrant guard needed because the
+    ///         only authorized caller already holds its own re-entrancy lock, and removing the
+    ///         guard avoids a re-entrancy collision when this contract's own placeDirectBet flow
+    ///         runs (it calls into PaymentHandler, which then calls back into addFunds).
+    function addFunds(uint256 amount) external {
+        if (msg.sender != paymentHandler) revert UnauthorizedCaller();
+        require(amount > 0, "Amount must be positive");
+
+        evaToken.safeTransferFrom(msg.sender, address(this), amount);
+        _distributeFunds(amount);
+
+        emit FundsAdded(msg.sender, amount, _totalPotBalance());
+    }
+
+    /// @notice Admin function to add funds with share distribution
+    function adminAddFunds(uint256 amount) external onlyAdmin nonReentrant {
+        require(amount > 0, "Amount must be positive");
+        
+        evaToken.safeTransferFrom(msg.sender, address(this), amount);
+        _distributeFunds(amount);
+        
+        emit AdminFundsDistributed(msg.sender, amount);
+        emit FundsAdded(msg.sender, amount, _totalPotBalance());
+    }
+
+    /// @notice Owner can seed individual tier pots directly
+    function seedTierPot(uint8 tierIndex, uint256 amount) external onlyOwner nonReentrant {
+        require(tierIndex < TIER_COUNT, "Invalid tier");
+        require(amount > 0, "Amount must be positive");
+        
+        evaToken.safeTransferFrom(msg.sender, address(this), amount);
+        tierPotBalance[tierIndex] += amount;
+        
+        emit TierPotSeeded(tierIndex, amount);
+    }
+
+    function _distributeFunds(uint256 amount) internal {
+        // 1. Take consolation share off the top
+        uint256 consolationAmount = (amount * consolationShareBps) / 10_000;
+        consolationPotBalance += consolationAmount;
+        
+        // 2. Distribute remainder to tier pots
+        uint256 remaining = amount - consolationAmount;
+        for (uint8 i = 0; i < TIER_COUNT; i++) {
+            uint256 share = (remaining * tierShareBps[i]) / 10_000;
+            tierPotBalance[i] += share;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // BALANCE VIEWS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Get individual tier pot balance
+    function getTierPotBalance(uint8 tierIndex) external view returns (uint256) {
+        require(tierIndex < TIER_COUNT, "Invalid tier");
+        return tierPotBalance[tierIndex];
+    }
+
+    /// @notice Get all tier pot balances
+    function getAllTierPotBalances() external view returns (uint256[9] memory balances) {
+        for (uint8 i = 0; i < TIER_COUNT; i++) {
+            balances[i] = tierPotBalance[i];
+        }
+    }
+
+    /// @notice V1-compatible: returns sum of all tier pots
+    function getJackpotBalance() external view returns (uint256) {
+        return _totalPotBalance();
+    }
+
+    function _totalPotBalance() internal view returns (uint256) {
+        uint256 total;
+        for (uint8 i = 0; i < TIER_COUNT; i++) {
+            total += tierPotBalance[i];
+        }
+        return total;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GAME MANAGEMENT
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function registerGame(address game, OutcomeConfig[] calldata outcomes) external onlyOwner {
+        if (game == address(0)) revert InvalidGame(game);
+        _validateOutcomes(outcomes);
+
+        GameConfig storage cfg = gameConfigs[game];
+        delete cfg.outcomes;
+
+        uint16 maxConsolation;
+        for (uint256 i = 0; i < outcomes.length; i++) {
+            cfg.outcomes.push(outcomes[i]);
+            if (!outcomes[i].awardsTier && outcomes[i].consolationMultiplier > maxConsolation) {
+                maxConsolation = outcomes[i].consolationMultiplier;
+            }
+        }
+
+        cfg.enabled = true;
+        cfg.maxConsolationMultiplier = maxConsolation;
+
+        if (!registeredGames[game]) {
+            registeredGames[game] = true;
+            gameList.push(game);
+            emit GameRegistered(game);
+        } else {
+            emit GameUpdated(game);
+        }
+    }
+
+    /// @notice Register a game that can only add funds (cannot process jackpot entries)
+    /// @dev The game can call addFunds() but processJackpotEntry() will revert with GameDisabled
+    function registerFundOnlyGame(address game) external onlyOwner {
+        if (game == address(0)) revert InvalidGame(game);
+        
+        if (!registeredGames[game]) {
+            registeredGames[game] = true;
+            gameList.push(game);
+            emit GameRegistered(game);
+        }
+        // cfg.enabled stays false, blocking processJackpotEntry()
+    }
+
+    function setGameStatus(address game, bool enabled) external onlyOwner {
+        if (!registeredGames[game]) revert InvalidGame(game);
+        gameConfigs[game].enabled = enabled;
+        emit GameStatusChanged(game, enabled);
+    }
+
+    function setGameFallback(address game, uint8 idx) external onlyOwner {
+        if (!registeredGames[game]) revert InvalidGame(game);
+        GameConfig storage cfg = gameConfigs[game];
+        require(idx < cfg.outcomes.length, "idx oob");
+        OutcomeConfig storage oc = cfg.outcomes[idx];
+        require(!oc.awardsTier && oc.consolationMultiplier == 0, "Not pure lose");
+        cfg.fallbackIdx = idx;
+        cfg.fallbackSet = true;
+    }
+
+    function getGameOutcomes(address game) external view returns (OutcomeConfig[] memory) {
+        return gameConfigs[game].outcomes;
+    }
+
+    function getRegisteredGames() external view returns (address[] memory) {
+        return gameList;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DIRECT BET CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function configureDirectBet(bool enabled, OutcomeConfig[] calldata outcomes) external onlyOwner {
+        _validateOutcomes(outcomes);
+        
+        delete directOutcomes;
+        uint16 maxConsolation;
+        for (uint256 i = 0; i < outcomes.length; i++) {
+            directOutcomes.push(outcomes[i]);
+            if (!outcomes[i].awardsTier && outcomes[i].consolationMultiplier > maxConsolation) {
+                maxConsolation = outcomes[i].consolationMultiplier;
+            }
+        }
+        directMaxConsolationMultiplier = maxConsolation;
+        directBetConfig.enabled = enabled;
+        
+        emit DirectBetConfigured(enabled);
+    }
+
+    function setDirectFallback(uint8 idx) external onlyOwner {
+        require(idx < directOutcomes.length, "idx oob");
+        OutcomeConfig storage oc = directOutcomes[idx];
+        require(!oc.awardsTier && oc.consolationMultiplier == 0, "Not pure lose");
+        directFallbackIdx = idx;
+        directFallbackSet = true;
+    }
+
+    function setPaymentHandler(address handler) external onlyOwner {
+        require(handler != address(0), "Invalid handler");
+        address oldHandler = paymentHandler;
+        if (oldHandler != address(0)) {
+            evaToken.safeApprove(oldHandler, 0);
+        }
+        paymentHandler = handler;
+        evaToken.safeApprove(handler, type(uint256).max);
+        emit PaymentHandlerUpdated(oldHandler, handler);
+    }
+
+    /// @notice Emitted when the PaymentHandler reference is swapped.
+    event PaymentHandlerUpdated(address indexed oldHandler, address indexed newHandler);
+
+    function getCurrentDirectBetCost() external view returns (uint256) {
+        return _computeTierCost(jackpotState.nextTierIndex);
+    }
+
+    function getDirectBetOutcomes() external view returns (OutcomeConfig[] memory outcomes) {
+        outcomes = new OutcomeConfig[](directOutcomes.length);
+        for (uint256 i = 0; i < directOutcomes.length; i++) {
+            outcomes[i] = directOutcomes[i];
+        }
+    }
+
+    function getLastDirectBetMaxPayout() external view returns (uint256) {
+        return lastDirectBetMaxPayout;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CURRENT TIER INFO
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function getCurrentTierInfo()
+        external
+        view
+        returns (uint8 tierIndex, TierConfig memory tier, uint256 prizeAmount)
+    {
+        tierIndex = jackpotState.nextTierIndex;
+
+        if (tierConfigs.length == 0) {
+            tier = TierConfig({
+                prizeMetric: 0,
+                isTerminal: false,
+                isPercent: false,
+                fixedBetCost: 0,
+                useDynamicCost: false,
+                costBps: 0
+            });
+            return (tierIndex, tier, 0);
+        }
+
+        tier = tierConfigs[tierIndex];
+        prizeAmount = tierPotBalance[tierIndex]; // V2: prize = pot balance
+    }
+
+    function ensurePayable(address game, uint256 betAmount) external view {
+        if (!registeredGames[game]) revert InvalidGame(game);
+        GameConfig storage cfg = gameConfigs[game];
+        if (!cfg.enabled) revert GameDisabled(game);
+
+        uint8 tierIndex = jackpotState.nextTierIndex;
+        uint256 tierPrize = tierPotBalance[tierIndex];
+        
+        // Check tier pot can pay
+        if (tierPrize == 0) revert InsufficientFunds();
+        
+        // Check current tier can pay max consolation
+        if (cfg.maxConsolationMultiplier > 0) {
+            uint256 maxConsolation = (betAmount * cfg.maxConsolationMultiplier) / 10_000;
+            if (tierPotBalance[tierIndex] < maxConsolation) revert InsufficientFunds();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CORE ENTRY PROCESSING
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function processJackpotEntry(
+        address player,
+        uint256 betAmount,
+        uint256 roll
+    ) external nonReentrant returns (uint256 payout) {
+        GameConfig storage cfg = gameConfigs[msg.sender];
+        if (!registeredGames[msg.sender]) revert InvalidGame(msg.sender);
+        if (!cfg.enabled) revert GameDisabled(msg.sender);
+        if (cfg.outcomes.length == 0) revert InvalidProbabilityTable();
+        if (roll >= PROBABILITY_PRECISION) revert ProbabilityOverflow();
+
+        JackpotState storage state = jackpotState;
+        uint8 tierIndex = state.nextTierIndex;
+        
+        // Increment probability for current tier
+        _incrementTierProbability(tierIndex);
+        
+        uint8 outcomeIndex = _resolveOutcome(cfg.outcomes, roll, tierIndex, cfg.fallbackIdx, cfg.fallbackSet);
+        OutcomeConfig memory outcome = cfg.outcomes[outcomeIndex];
+
+        // Solvency checks (soft - will gracefully degrade if underfunded)
+        bool awardThisTier = outcome.awardsTier && (outcomeIndex == FIRST_TIER_OFFSET + tierIndex);
+        if (awardThisTier && tierPotBalance[tierIndex] == 0) {
+            // Tier pot empty - will return 0 payout gracefully
+        }
+
+        // Pass 0 for maxPayout = no cap (game entries resolve immediately, no race condition)
+        payout = _handleOutcome(player, betAmount, tierIndex, outcomeIndex, outcome, 0);
+
+        uint256 entryId = nextEntryId++;
+        entryHistory[entryId] = EntryRecord({
+            game: msg.sender,
+            player: player,
+            betAmount: betAmount,
+            tierIndex: tierIndex,
+            outcomeIndex: outcomeIndex,
+            payout: payout,
+            timestamp: block.timestamp
+        });
+
+        state.totalEntries++;
+
+        emit EntryProcessed(entryId, msg.sender, player, tierIndex, outcomeIndex, payout);
+        return payout;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DIRECT BETTING
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Player calls directly to place a bet against the current jackpot tier.
+    function placeDirectBet(address potentialReferrer) external nonReentrant returns (uint256 requestId) {
+        return _placeDirectBetInternal(msg.sender, potentialReferrer);
+    }
+
+    /// @notice Operator-relayed entry. Verifies the player's session-key signature, then runs the
+    ///         identical internal flow as placeDirectBet so events and state changes are uniform.
+    /// @dev    The cost charged against the player's spend cap on AuthHub is the current tier cost.
+    ///         The player's wallet must have approved this contract for at least that amount.
+    function placeDirectBetFor(
+        address player,
+        address potentialReferrer,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata signature
+    ) external onlyOperator nonReentrant returns (uint256 requestId) {
+        bytes32 structHash = keccak256(abi.encode(
+            PLACE_DIRECT_BET_TYPEHASH,
+            address(this),
+            player,
+            potentialReferrer,
+            nonce,
+            deadline
+        ));
+        // The cost chargeable against the player's spend cap is the current tier cost.
+        uint256 cost = _computeTierCost(jackpotState.nextTierIndex);
+        _verifyAndConsume(player, address(this), cost, structHash, deadline, nonce, signature);
+        return _placeDirectBetInternal(player, potentialReferrer);
+    }
+
+    /// @dev Shared bet-placement logic used by both placeDirectBet and placeDirectBetFor.
+    ///      Pulls cost from `bettor` (which the player must have approved), routes through
+    ///      PaymentHandler, distributes net to tier pots, and registers a VRF request.
+    function _placeDirectBetInternal(address bettor, address potentialReferrer) internal returns (uint256 requestId) {
+        address handler = paymentHandler;
+        require(handler != address(0), "Handler not set");
+
+        DirectBetConfig memory config = directBetConfig;
+        require(config.enabled, "Direct betting disabled");
+        require(directOutcomes.length > 0, "Direct outcomes not set");
+
+        uint8 tierIndex = jackpotState.nextTierIndex;
+        uint256 cost = _computeTierCost(tierIndex);
+        require(cost > 0, "Cost unavailable");
+
+        lastDirectBetBaseCost = cost;
+
+        evaToken.safeTransferFrom(bettor, address(this), cost);
+        uint256 netAmount = IPaymentHandler(handler).processDirectBetFromGame(bettor, potentialReferrer, cost);
+        require(netAmount <= cost, "Handler returned excess");
+
+        // Distribute the net amount to tier pots
+        _distributeFunds(netAmount);
+
+        uint256 maxPayout = _computeMaxDirectBetPayout(netAmount, tierIndex);
+        require(maxPayout > 0, "Max payout unavailable");
+
+        // Solvency check
+        require(tierPotBalance[tierIndex] > 0, "Tier pot empty");
+
+        requestId = _createDirectBetRequest(bettor, netAmount, tierIndex);
+        directBetBaseCost[requestId] = cost;
+        directBetMaxPayout[requestId] = maxPayout;
+        lastDirectBetMaxPayout = maxPayout;
+    }
+
+    function fulfillRandomness(
+        uint256 requestId,
+        uint256 /* randomWord */,
+        uint256[] memory derivedValues
+    ) external override {
+        require(msg.sender == address(randomProvider), "Only provider");
+        DirectBetRequest storage info = directBetRequests[requestId];
+        if (info.bettor == address(0) || info.settled) {
+            return;
+        }
+
+        require(derivedValues.length > 0, "No value");
+        uint256 roll = derivedValues[0];
+
+        // Increment probability for current tier
+        _incrementTierProbability(info.tierIndex);
+
+        uint8 outcomeIndex = _resolveOutcome(directOutcomes, roll, info.tierIndex, directFallbackIdx, directFallbackSet);
+        OutcomeConfig memory outcome = directOutcomes[outcomeIndex];
+
+        // Get maxPayout (what was promised at bet time)
+        uint256 maxPayout = directBetMaxPayout[requestId];
+        if (maxPayout == 0) {
+            maxPayout = _computeMaxDirectBetPayout(info.amount, info.tierIndex);
+        }
+
+        // Pass maxPayout to cap tier prizes (graceful handling of race conditions)
+        uint256 payout = _handleOutcome(info.bettor, info.amount, info.tierIndex, outcomeIndex, outcome, maxPayout);
+
+        uint256 entryId = nextEntryId++;
+        entryHistory[entryId] = EntryRecord({
+            game: address(this),
+            player: info.bettor,
+            betAmount: info.amount,
+            tierIndex: info.tierIndex,
+            outcomeIndex: outcomeIndex,
+            payout: payout,
+            timestamp: block.timestamp
+        });
+        jackpotState.totalEntries++;
+
+        emit EntryProcessed(entryId, address(this), info.bettor, info.tierIndex, outcomeIndex, payout);
+        emit DirectBetSettled(requestId, info.bettor, outcomeIndex, payout);
+
+        info.settled = true;
+        delete directBetRequests[requestId];
+        delete directBetBaseCost[requestId];
+        delete directBetMaxPayout[requestId];
+    }
+
+    function handleRandomFailure(
+        uint256 requestId,
+        bytes32 /* reason */,
+        bytes calldata /* details */
+    ) external override {
+        require(msg.sender == address(randomProvider), "Only provider");
+        DirectBetRequest storage info = directBetRequests[requestId];
+        if (info.bettor == address(0) || info.settled) {
+            return;
+        }
+
+        // Refund from tier 9 pot (where most funds went)
+        uint256 refundAmount = info.amount;
+        if (tierPotBalance[LAST_TIER_INDEX] >= refundAmount) {
+            tierPotBalance[LAST_TIER_INDEX] -= refundAmount;
+            evaToken.safeTransfer(info.bettor, refundAmount);
+        }
+        
+        info.settled = true;
+        delete directBetRequests[requestId];
+        delete directBetBaseCost[requestId];
+        delete directBetMaxPayout[requestId];
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INTERNAL: PROBABILITY
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function _incrementTierProbability(uint8 tierIndex) internal {
+        TierProbConfig memory config = tierProbConfigs[tierIndex];
+        if (config.incrementPpm == 0) return;
+        
+        uint256 currentProb = tierCurrentProbBps[tierIndex];
+        uint256 newProb = currentProb + config.incrementPpm;
+        
+        if (newProb > config.maxProbPpm) {
+            newProb = config.maxProbPpm;
+        }
+        
+        tierCurrentProbBps[tierIndex] = newProb;
+        tierEntriesSinceWin[tierIndex]++;
+    }
+
+    function _resetTierProbability(uint8 tierIndex) internal {
+        uint32 minProb = tierProbConfigs[tierIndex].minProbPpm;
+        tierCurrentProbBps[tierIndex] = minProb;
+        tierEntriesSinceWin[tierIndex] = 0;
+        
+        emit TierProbabilityReset(tierIndex, minProb);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INTERNAL: OUTCOME RESOLUTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function _resolveOutcome(
+        OutcomeConfig[] storage outcomes,
+        uint256 roll,
+        uint8 currentTier,
+        uint8 fbIdx,
+        bool fbSet
+    ) internal view returns (uint8) {
+        uint256 cumulative = 0;
+        uint8 currentAwardIdx = FIRST_TIER_OFFSET + currentTier;
+
+        for (uint8 i = 0; i < outcomes.length; i++) {
+            OutcomeConfig storage oc = outcomes[i];
+            if (!oc.enabled) continue;
+
+            // Only consider the current tier's award slice
+            if (oc.awardsTier && i != currentAwardIdx) continue;
+
+            uint32 p;
+            if (oc.awardsTier) {
+                p = uint32(tierCurrentProbBps[currentTier]);
+            } else {
+                p = _getConsolationProbability(i);
+            }
+            
+            if (p == 0) continue;
+
+            cumulative += p;
+            if (roll < cumulative) return i;
+        }
+
+        if (fbSet) return fbIdx;
+        revert InvalidProbabilityTable();
+    }
+
+    function _getConsolationProbability(uint8 outcomeIndex) internal view returns (uint32) {
+        if (outcomeIndex == 1) return consolation1ProbPpm;
+        if (outcomeIndex == 2) return consolation2ProbPpm;
+        return 0;
+    }
+
+    function _handleOutcome(
+        address player,
+        uint256 betAmount,
+        uint8 tierIndex,
+        uint8 outcomeIndex,
+        OutcomeConfig memory outcome,
+        uint256 maxPayout
+    ) internal returns (uint256 payout) {
+        JackpotState storage state = jackpotState;
+
+        bool isCurrentTierAward = outcome.awardsTier && (outcomeIndex == FIRST_TIER_OFFSET + tierIndex);
+
+        if (isCurrentTierAward) {
+            payout = _awardTier(player, tierIndex, outcome, maxPayout);
+            _updateProgression(state, tierIndex, outcome);
+            _resetTierProbability(tierIndex);
+            return payout;
+        }
+
+        if (outcome.consolationMultiplier > 0) {
+            payout = (betAmount * outcome.consolationMultiplier) / 10_000;
+            
+            // Cap consolation to available funds in consolation pot (graceful degradation)
+            if (payout > consolationPotBalance) {
+                payout = consolationPotBalance;
+            }
+            
+            // Pay from CONSOLATION pot (separate from tier pots)
+            if (payout > 0) {
+                consolationPotBalance -= payout;
+                evaToken.safeTransfer(player, payout);
+                state.totalConsolationPaid += payout;
+                emit ConsolationPaid(player, payout, outcome.consolationMultiplier);
+            }
+            return payout;
+        }
+
+        // Pure lose
+        return 0;
+    }
+
+    function _awardTier(
+        address player,
+        uint8 tierIndex,
+        OutcomeConfig memory outcome,
+        uint256 maxPayout
+    ) internal returns (uint256 payout) {
+        require(tierIndex < tierConfigs.length, "Invalid tier");
+
+        // Prize = tier pot balance, but capped at maxPayout if specified
+        uint256 potBalance = tierPotBalance[tierIndex];
+        
+        // Graceful handling: if pot is empty, payout is 0
+        if (potBalance == 0) {
+            return 0;
+        }
+        
+        // Cap payout at maxPayout (0 means no cap)
+        if (maxPayout > 0 && potBalance > maxPayout) {
+            payout = maxPayout;
+            tierPotBalance[tierIndex] = potBalance - maxPayout;  // Keep remainder in pot
+        } else {
+            payout = potBalance;
+            tierPotBalance[tierIndex] = 0;  // Empty the pot
+        }
+        
+        jackpotState.lastWinner = player;
+        jackpotState.lastWinTimestamp = block.timestamp;
+
+        evaToken.safeTransfer(player, payout);
+        emit TierWon(tierIndex, player, payout);
+
+        TierConfig memory tier = tierConfigs[tierIndex];
+        if (outcome.tierAdvance == 0 || tier.isTerminal) {
+            jackpotState.totalJackpotsWon++;
+            emit JackpotWon(player, payout);
+        }
+    }
+
+    function _updateProgression(
+        JackpotState storage state,
+        uint8 currentTier,
+        OutcomeConfig memory outcome
+    ) internal {
+        if (!outcome.awardsTier) {
+            return;
+        }
+
+        uint8 destination = currentTier + outcome.tierAdvance;
+        if (outcome.tierAdvance == 0) destination = currentTier;
+
+        if (destination >= tierConfigs.length) {
+            state.nextTierIndex = outcome.tierResetTo;
+        } else if (tierConfigs[currentTier].isTerminal) {
+            state.nextTierIndex = outcome.tierResetTo;
+        } else {
+            state.nextTierIndex = destination;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INTERNAL: COST CALCULATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function _computeTierCost(uint8 tierIndex) internal view returns (uint256) {
+        if (tierConfigs.length == 0) return 0;
+        if (tierIndex >= tierConfigs.length) tierIndex = uint8(tierConfigs.length - 1);
+        
+        // V2: Always use fixed cost
+        return tierConfigs[tierIndex].fixedBetCost;
+    }
+
+    function _computeMaxDirectBetPayout(uint256 netAmount, uint8 tierIndex) internal view returns (uint256) {
+        uint256 maxPayout;
+        
+        // Tier prize = pot balance
+        if (tierIndex < TIER_COUNT) {
+            uint256 tierPrize = tierPotBalance[tierIndex];
+            if (tierPrize > maxPayout) {
+                maxPayout = tierPrize;
+            }
+        }
+
+        // Consolation payouts
+        for (uint256 i = 0; i < directOutcomes.length; i++) {
+            OutcomeConfig memory outcome = directOutcomes[i];
+            if (outcome.awardsTier) continue;
+            if (outcome.consolationMultiplier > 0) {
+                uint256 consolation = (netAmount * outcome.consolationMultiplier) / 10_000;
+                if (consolation > maxPayout) {
+                    maxPayout = consolation;
+                }
+            }
+        }
+
+        return maxPayout;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INTERNAL: VALIDATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function _validateOutcomes(OutcomeConfig[] calldata outcomes) internal pure {
+        if (outcomes.length == 0) revert InvalidProbabilityTable();
+    }
+
+    function _createDirectBetRequest(address bettor, uint256 netAmount, uint8 tierIndex)
+        private
+        returns (uint256 requestId)
+    {
+        requestId = randomProvider.requestRandomNumber(PROBABILITY_PRECISION);
+        directBetRequests[requestId] = DirectBetRequest({
+            bettor: bettor,
+            amount: netAmount,
+            tierIndex: tierIndex,
+            settled: false
+        });
+
+        emit DirectBetRequested(requestId, bettor, netAmount, tierIndex);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // VIEW HELPERS (V1-compatible)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function getJackpotState() external view returns (JackpotState memory) {
+        return jackpotState;
+    }
+
+    function getEntry(uint256 entryId) external view returns (EntryRecord memory) {
+        return entryHistory[entryId];
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // EMERGENCY
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function emergencyWithdraw(address to, uint256 amount) external onlyOwner nonReentrant {
+        require(to != address(0), "Invalid address");
+        uint256 bal = evaToken.balanceOf(address(this));
+        uint256 amt = amount == 0 ? bal : amount;
+        require(amt <= bal, "Insufficient balance");
+
+        // Capture pot balances BEFORE clearing so the emitted event preserves the audit trail.
+        uint256[] memory tierPotsCleared = new uint256[](TIER_COUNT);
+        for (uint8 i = 0; i < TIER_COUNT; i++) {
+            tierPotsCleared[i] = tierPotBalance[i];
+            tierPotBalance[i] = 0;
+        }
+        uint256 consolationPotCleared = consolationPotBalance;
+        consolationPotBalance = 0;
+
+        evaToken.safeTransfer(to, amt);
+        emit JackpotEmergencyWithdraw(to, amt, tierPotsCleared, consolationPotCleared);
+    }
+
+    /// @notice Emergency exit. Captures the value of every tier pot and the
+    ///         consolation pot at the moment they were zeroed, so indexers
+    ///         retain the audit trail for funds removed from the jackpot.
+    event JackpotEmergencyWithdraw(
+        address indexed to,
+        uint256 amount,
+        uint256[] tierPotsCleared,
+        uint256 consolationPotCleared
+    );
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MULTICALLABLE HOOK
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @inheritdoc Multicallable
+    function _multicallAuthorized(address caller) internal view override returns (bool) {
+        return authHub.isOperator(caller);
+    }
+}
+

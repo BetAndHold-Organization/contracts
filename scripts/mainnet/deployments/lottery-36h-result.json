@@ -1,0 +1,73 @@
+{
+  "lottery": "0x46dedcca913facb6f6fab4191b25de34c8e9cb57",
+  "csv": "../../contracts/tickets-36h-2026-05-01-00-45-42.csv",
+  "txHash": "0x9cb8790f8c20d01369698e048eb38903ce8bdaaa28981d6fd8605198e897106c",
+  "requestId": "2000815661982100196491693745360622796008255911428238479693365065356384508350",
+  "randomWord": "34379084881090621653951572589930948507218240756183938794468660280576443312327",
+  "totalTickets": "10501",
+  "playerCount": 88,
+  "numWinners": 10,
+  "executedAt": "2026-05-01T00:52:41.753Z",
+  "winners": [
+    {
+      "rank": 1,
+      "address": "0x11a33c3895e589c56984da0c50629e9f43feff3b",
+      "tickets": 1049,
+      "percentChance": 9.98
+    },
+    {
+      "rank": 2,
+      "address": "0x0604baa606e0d3ea112fe38bc5356ab96913980f",
+      "tickets": 300,
+      "percentChance": 2.85
+    },
+    {
+      "rank": 3,
+      "address": "0x182923f85f1485f931a830f83ef4a0b36ff4e2e2",
+      "tickets": 379,
+      "percentChance": 3.6
+    },
+    {
+      "rank": 4,
+      "address": "0xcf5349a36457ce5ae4bf4e5dae72a355c6bf5bf5",
+      "tickets": 915,
+      "percentChance": 8.71
+    },
+    {
+      "rank": 5,
+      "address": "0xb364f0c221d8e7a2353568118c3d40e911f7cc53",
+      "tickets": 906,
+      "percentChance": 8.62
+    },
+    {
+      "rank": 6,
+      "address": "0xb55b122495aecc8da5aee034e93367afa833ac72",
+      "tickets": 30,
+      "percentChance": 0.28
+    },
+    {
+      "rank": 7,
+      "address": "0xfbfd829a0acf02ac393ebe06136c17b67bc58a4c",
+      "tickets": 1090,
+      "percentChance": 10.37
+    },
+    {
+      "rank": 8,
+      "address": "0x1cfe5ef0ece8a363244a51bc99a6681d8af170cc",
+      "tickets": 1015,
+      "percentChance": 9.66
+    },
+    {
+      "rank": 9,
+      "address": "0x394ecd123435e8970d88c89192fc83d6ae52aeb8",
+      "tickets": 284,
+      "percentChance": 2.7
+    },
+    {
+      "rank": 10,
+      "address": "0xdc17d456a9b1a91e8eacf8c035aef986e5d31310",
+      "tickets": 72,
+      "percentChance": 0.68
+    }
+  ]
+}

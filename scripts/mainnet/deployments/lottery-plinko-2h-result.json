@@ -1,0 +1,73 @@
+{
+  "lottery": "0x46dedcca913facb6f6fab4191b25de34c8e9cb57",
+  "csv": "../../contracts/plinko-tickets-2h-2026-04-29T21-04-38.csv",
+  "txHash": "0xdcdd972e93a9faa8b4c86c07e4836780ddf8ddfd4798e9b2c117c3905f127ed6",
+  "requestId": "65081455220329130540687535313300177903185471455175465614597233974601035580198",
+  "randomWord": "57582768114012222195145802233217999768206871555966298765676004918765341464123",
+  "totalTickets": "1732",
+  "playerCount": 18,
+  "numWinners": 10,
+  "executedAt": "2026-04-29T21:09:03.767Z",
+  "winners": [
+    {
+      "rank": 1,
+      "address": "0xad7caef983d7785c4cc6cc8e1f3c582b8a99c195",
+      "tickets": 219,
+      "percentChance": 12.64
+    },
+    {
+      "rank": 2,
+      "address": "0xfbfd829a0acf02ac393ebe06136c17b67bc58a4c",
+      "tickets": 1060,
+      "percentChance": 61.2
+    },
+    {
+      "rank": 3,
+      "address": "0x927b7232b12da00ffc34a24df7386367742c43d3",
+      "tickets": 229,
+      "percentChance": 13.22
+    },
+    {
+      "rank": 4,
+      "address": "0xe9fade45e618e11bd38a73803fb84e46a0cd6c62",
+      "tickets": 43,
+      "percentChance": 2.48
+    },
+    {
+      "rank": 5,
+      "address": "0x4f3942d58d1058e39a8fb39efa1f11d5d9d945a3",
+      "tickets": 23,
+      "percentChance": 1.32
+    },
+    {
+      "rank": 6,
+      "address": "0x9f157d563fbf376f90fe8b3452507649a2d6a38f",
+      "tickets": 10,
+      "percentChance": 0.57
+    },
+    {
+      "rank": 7,
+      "address": "0x03901c58c9252b017b0aeea6e6231b63f072c515",
+      "tickets": 40,
+      "percentChance": 2.3
+    },
+    {
+      "rank": 8,
+      "address": "0x9545997091e07b5696477d18a2ee9e7c75a3b3b9",
+      "tickets": 10,
+      "percentChance": 0.57
+    },
+    {
+      "rank": 9,
+      "address": "0xd7e4c63331698e8d69f556f8089779f61237d59c",
+      "tickets": 27,
+      "percentChance": 1.55
+    },
+    {
+      "rank": 10,
+      "address": "0xc7137d1427cebe3e842b621f862a6d1afaf0afc3",
+      "tickets": 10,
+      "percentChance": 0.57
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "network": "arbitrumSepolia",
+  "chainId": 421614,
+  "deployedAt": "2026-05-14T15:04:58.487Z",
+  "deployer": "0x305ed0b238f108e671a769436f7ac9b13ee66942",
+  "vrf": {
+    "coordinator": "0x5ce8d5a2bc84beb22a398cca51996f7930313d61",
+    "keyHash": "0x1770bdc7eec7771f7ba4ffd640f34260d7f095b79c92d34a5b2551d6f6cfd2be",
+    "subscriptionId": "66342123673918521914144515151298821875973819299842251557802224390940251944686"
+  },
+  "wallets": {
+    "player1": "0xe63541cB03379094E1790B47925563eE70C41D7D",
+    "player2": "0xE1baCDbe620B1899e8Fe7cB8257626E1F90Ba5FD",
+    "sessionKey": "0xF16CEACB26c01050E8e96579Da2080Da97daf889",
+    "oracleSigner": "0xf80e729EBDde75A9Aa16433BAf89821A2C130824",
+    "feeRecipient": "0x65C76Fa75e4B26BEa575456e930a9ADfD5b6df10",
+    "defaultReceiver": "0x5d42eB56e16323aeE749fb2f16Ae566D9f12bA35",
+    "operator": "0xf0ff779fcAaDbA96B7a41e7D57B0e15172495e29"
+  },
+  "contracts": {
+    "evaToken": "0xf813ee99f010f87b0038fc215e58eece3de6aae3",
+    "authHub": "0x6c7bfb77a47c8a9b5e1d21533b21b7034061d5dd",
+    "mlr": "0x6dc63860f26012c15681727eb38f2c42b044648c",
+    "paymentHandler": "0x4b801d0e4d13423f57138b18e014b4faeea892e3",
+    "randomProvider": "0x24284cf3d3b32708449b62c5b0be10451d2638b3",
+    "progressiveJackpot": "0x32e70cbac2724c38e52c69ec4275305bb52cd60f",
+    "roulette": "0xd12e05531474838fa4bfcebf3fdcd0a14873436a",
+    "slots": "0x2f7a8f20b406f4c81249ecc323e3dfbfe7ee94c8",
+    "plinko": "0x8a2ce67b44bf47ef2744978d57adbe89e01eaee4",
+    "mines": "0x90d87de1903a7f69f8729091510acc8ed266a561",
+    "paymentOnlyGameAdapter": "0x7da1b76402c035be077742eaa5dcf684beec2e15",
+    "ticketLottery": "0xf7e110c24f12a59cbfeec25fea71be29d0bfd8f3",
+    "crashGame": "0xec00af8443b7781ccc1767ac1221eed7a7c4f3f4"
+  }
+}

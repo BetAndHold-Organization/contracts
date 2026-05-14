@@ -1,38 +1,46 @@
+# ── Secrets ──────────────────────────────────────────────────────────────
 .env
-.env.local
-/graph/.env
-/graph/.env.local
-/graph/dist
-/graph/node_modules
-# Node modules
-/node_modules
+.env.*
+*.env
+!.env.example
+!.env.example.*
 
-# Compilation output
-/dist
+# Private keys (deployer keys, Chainlink VRF, Etherscan API, etc.)
+*.pem
+*.key
+*.p12
+*.pfx
+*.wallet
+UTC--*
+keystore/
 
-# pnpm deploy output
-/bundle
+# ── Node / Build artifacts ───────────────────────────────────────────────
+node_modules/
+dist/
+bundle/
 
-# Hardhat Build Artifacts
-/artifacts
+# Hardhat
+artifacts/
+cache/
+types/
+coverage/
 
-# Hardhat compilation (v2) support directory
-/cache
+# Foundry
+out/
+broadcast/
+forge-cache/
 
-# Typechain output
-/types
+# ── Local deployment overrides ───────────────────────────────────────────
+# The canonical deployment JSON (e.g. arbitrumSepolia.json) IS committed
+# so backends + tests can read it. Local-override variants carry private
+# data and must stay out.
+deployments/**/*.local.json
+deployments/**/*-private.json
+**/secrets.json
 
-# Hardhat coverage reports
-/coverage
-/graph/node_modules
-/graph/dist
-.env
-.env.local
-
-# GraphQL server artifacts
-/graph/node_modules
-/graph/dist
-
-# Environment files
-.env
-.env.local
+# ── Logs / OS / Editor ───────────────────────────────────────────────────
+*.log
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/

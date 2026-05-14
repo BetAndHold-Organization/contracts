@@ -1,0 +1,32 @@
+{
+  "contract": "CrashGame",
+  "version": "V5",
+  "deployedAt": "2026-04-28T21:52:31.916Z",
+  "network": "arbitrum",
+  "crashGame": "0x9c8b6b866013fd51d52a0d3245c64e1af4d34984",
+  "infrastructure": {
+    "token": "0x45D9831d8751B2325f3DBf48db748723726e1C8c",
+    "handler": "0xabe66fc056dd0e116b90201e487ea102fd7df1ba",
+    "randomProvider": "0x6513baa6c53a570ec899bb1504a95f160b8d7850",
+    "house": "0x2132c5e539F1Da6090424644576ABB5C5aDcdbbd"
+  },
+  "roles": {
+    "admin": "0xe7e486f42fd93148978fe83326be7f3ce8e3a16a",
+    "operator": "0x9E092349b284887cd2BB80d0952F0440604eb6F9"
+  },
+  "config": {
+    "houseEdgeBps": 150,
+    "referralBps": 150,
+    "operatorBondAmount": "10 EVA",
+    "minBetAmount": "0.1 EVA",
+    "maxBetAmount": "1 EVA",
+    "maxPayoutPerRound": "100 EVA",
+    "maxMultiplier": "100.00x",
+    "reservationMultiplier": "50.00x",
+    "roundIntervalSeconds": 40,
+    "bettingWindowSeconds": 30,
+    "revealDeadlineSeconds": 60,
+    "claimWindowSeconds": 604800,
+    "maxBetsPerRound": 2
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "_comment": "Mainnet deployment manifest. Single source of truth for which version is live for each contract and where to find the full artifact. Updated on every mainnet deploy. The indexer / backend should read this file (or its raw URL on GitHub) to discover what to track. Per-file artifacts under this directory remain the authoritative record for config + roles for a given version; this index just answers 'what's live now and where do I find it'.",
+
+  "network": "arbitrum",
+  "chainId": 42161,
+  "lastUpdated": "2026-05-13",
+
+  "platform": {
+    "current": "V5",
+    "artifact": "arb-mainnet-v5.json",
+    "core": {
+      "evaToken":        "0x45D9831d8751B2325f3DBf48db748723726e1C8c",
+      "randomProvider":  "0x6513baa6c53a570ec899bb1504a95f160b8d7850",
+      "paymentHandler":  "0xabe66fc056dd0e116b90201e487ea102fd7df1ba",
+      "mlr":             "0xf359892154589e9459c6f979d5de37a2755cf0e9",
+      "progressiveJackpot": "0xb8dbb7d52be61fc30b7f47e11ddb9af472c6a2ef",
+      "house":           "0x2132c5e539F1Da6090424644576ABB5C5aDcdbbd"
+    },
+    "previous": [
+      { "version": "V4-public", "artifact": "arb-mainnet-public.json" },
+      { "version": "V4",        "artifact": "arb-mainnet-v4.json" },
+      { "version": "V3",        "artifact": "arb-mainnet-v3.json" },
+      { "version": "V2",        "artifact": "arb-mainnet-v2.json" },
+      { "version": "V1",        "artifact": "arb-mainnet.json" }
+    ]
+  },
+
+  "games": {
+    "_comment": "For each game: the currently-live deployment artifact and on-chain address. New games or version bumps register here on deploy.",
+
+    "roulette": {
+      "current": "V5",
+      "artifact": "arb-mainnet-v5.json",
+      "address": "0x29a597c324dce8f075d55acc7b0e65563ae180ab",
+      "contract": "SingleRandomRoulette"
+    },
+
+    "slots": {
+      "current": "V4-slots",
+      "artifact": "arb-mainnet-slots.json",
+      "address": "0xa04cff8ee328554fa056ded1151dc89bf0aba907",
+      "contract": "MultiLineSlots",
+      "_note": "Slots was deployed against the V4-era core (token + handler still match V5)."
+    },
+
+    "plinko": {
+      "current": "V5",
+      "artifact": "plinko-mainnet-v5.json",
+      "address": "0xe06bf80bba6df203eae104968ade29b50077ee02",
+      "contract": "Plinko"
+    },
+
+    "crash": {
+      "current": "V5",
+      "artifact": "crash-mainnet.json",
+      "address": "0x9c8b6b866013fd51d52a0d3245c64e1af4d34984",
+      "contract": "CrashGame"
+    },
+
+    "mines": {
+      "current": null,
+      "artifact": null,
+      "address": null,
+      "contract": "MinesGameHybrid",
+      "_note": "Not yet deployed to mainnet. Will register here on first mainnet deploy."
+    },
+
+    "paymentOnlyGameAdapter": {
+      "current": null,
+      "artifact": null,
+      "address": null,
+      "contract": "PaymentOnlyGameAdapter",
+      "_note": "Not yet deployed to mainnet."
+    },
+
+    "ticketLottery": {
+      "current": "standalone",
+      "artifact": "lottery-mainnet.json",
+      "address": "0x46dedcca913facb6f6fab4191b25de34c8e9cb57",
+      "contract": "TicketLottery",
+      "_note": "TicketLottery talks to Chainlink VRF coordinator directly, NOT via the platform RandomProvider. It does not inherit BaseGame and does not emit IGameEvents envelope events. Indexers wanting to track lottery draws should subscribe to LotteryRequested / LotteryFulfilled directly."
+    }
+  },
+
+  "ancillaryArtifacts": {
+    "_comment": "Non-deployment files in this directory (lottery results, airdrop ledgers, etc.). Listed here so consumers know they exist; not part of the live contract graph.",
+    "lotteryResults": [
+      "lottery-36h-result.json",
+      "lottery-crash-36h-result.json",
+      "lottery-plinko-2h-result.json",
+      "lottery-plinko-result.json"
+    ],
+    "airdropLedgers": [
+      "airdrop-crash-lottery-winners.csv",
+      "airdrop-lottery-36h-winners.csv",
+      "airdrop-lottery-winners.csv",
+      "airdrop-results.csv"
+    ]
+  }
+}
