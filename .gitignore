@@ -30,12 +30,11 @@ out/
 broadcast/
 forge-cache/
 
-# ── Local deployment overrides ───────────────────────────────────────────
-# The canonical deployment JSON (e.g. arbitrumSepolia.json) IS committed
-# so backends + tests can read it. Local-override variants carry private
-# data and must stay out.
-deployments/**/*.local.json
-deployments/**/*-private.json
+# ── Deployment artifacts ─────────────────────────────────────────────────
+# Per-environment, regenerated on every redeploy via the deploy scripts.
+# Not source of truth — each team produces their own. Kept out of the repo
+# so working trees don't drift after a fresh `npm run deploy:testnet`.
+deployments/*.json
 **/secrets.json
 
 # ── Logs / OS / Editor ───────────────────────────────────────────────────
