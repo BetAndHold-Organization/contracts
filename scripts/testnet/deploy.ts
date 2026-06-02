@@ -10,8 +10,8 @@
  *   - All seven games (Roulette, Slots, Plinko, Mines, PaymentOnlyGameAdapter, TicketLottery, CrashGame)
  *
  * Then wires everything together, configures each game with sensible defaults,
- * bankrolls each game, and adds RandomProvider + TicketLottery as VRF consumers
- * on the pre-funded Chainlink subscription.
+ * and bankrolls each game with the deployer's remaining EVA balance split evenly.
+ * VRF consumers (RandomProvider, TicketLottery) must be added manually at vrf.chain.link.
  *
  * Funding of testnet wallets, approvals, and session-key authorization are
  * handled by scripts/testnet/setup.ts so the deploy stage stays focused.
@@ -21,15 +21,10 @@
 
 import { network } from "hardhat";
 import {
-  createWalletClient,
   formatEther,
-  http,
   nonceManager,
   parseEther,
-  type Account,
-  type Address,
 } from "viem";
-import { arbitrumSepolia } from "viem/chains";
 
 import {
   loadTestnetEnv,
@@ -46,7 +41,7 @@ type Addr = `0x${string}`;
 // ─────────────────────────────────────────────────────────────────────────
 
 // PaymentHandler fee split per game (must total < 10000)
-const HOUSE_BPS = 200;       // 2% house edge → fee recipient
+const HOUSE_BPS = 300;       // 3% house edge → fee recipient
 const REFERRAL_BPS = 200;    // 2% referrals
 const JACKPOT_BPS = 100;     // 1% routed to ProgressiveJackpot at bet entry
 
@@ -63,8 +58,8 @@ const PJ_PROB_INCREMENT = 30;         // 0.003% per entry
 // Pot seeding (per tier + consolation)
 const PJ_POT_SEED = parseEther("10");
 
-// Game bankroll (EVA each)
-const GAME_BANKROLL = parseEther("2000");
+// Game bankroll: dynamically split deployer's remaining EVA across all games
+// (set to 0n here — computed at runtime after all other token transfers)
 
 // Roulette table
 const ROULETTE_MIN_MULTIPLIER = 200;   // 2.00x
@@ -112,60 +107,6 @@ function step(s: string) {
 
 function ok(s: string) {
   console.log(`  ✓ ${s}`);
-}
-
-const VRF_COORD_ABI = [
-  {
-    type: "function",
-    name: "addConsumer",
-    inputs: [
-      { name: "subId", type: "uint256" },
-      { name: "consumer", type: "address" },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "getSubscription",
-    inputs: [{ name: "subId", type: "uint256" }],
-    outputs: [
-      { name: "balance", type: "uint96" },
-      { name: "nativeBalance", type: "uint96" },
-      { name: "reqCount", type: "uint64" },
-      { name: "owner", type: "address" },
-      { name: "consumers", type: "address[]" },
-    ],
-    stateMutability: "view",
-  },
-] as const;
-
-async function addVrfConsumer(
-  deployer: any,
-  publicClient: any,
-  coordinator: Addr,
-  subId: bigint,
-  consumer: Addr,
-  label: string,
-) {
-  try {
-    const hash = await deployer.writeContract({
-      address: coordinator,
-      abi: VRF_COORD_ABI,
-      functionName: "addConsumer",
-      args: [subId, consumer],
-    });
-    await publicClient.waitForTransactionReceipt({ hash });
-    ok(`Added ${label} as VRF consumer (${consumer})`);
-  } catch (e: any) {
-    const msg = String(e?.shortMessage ?? e?.message ?? e);
-    if (msg.includes("AlreadyAdded") || msg.includes("already")) {
-      ok(`${label} is already a VRF consumer`);
-    } else {
-      console.warn(`  ⚠ Failed to add ${label} as VRF consumer: ${msg}`);
-      console.warn(`     You may need to add it manually at vrf.chain.link`);
-    }
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -517,16 +458,17 @@ async function main() {
   // ── 6g. CrashGame ──
   // PushVRFGame shape. Constructor: (token, paymentHandler, randomProvider, admin, authHub, operator).
   // Game-lifecycle ops (createRound / startRound / revealSeed / settleRoundExposure / submitMerkleRoot
-  // / depositBond / withdrawBond) are gated to `gameOperators` — the constructor seeds `walletAddrs.operator`
-  // as the initial one.
-  step("Deploying CrashGame (admin = deployer, operator = " + walletAddrs.operator + ")");
+  // / depositBond / withdrawBond) are gated to `gameOperators`.
+  // Deployer is used as both admin AND initial gameOperator to simplify testnet setup
+  // (single wallet, no cross-wallet ETH/EVA funding needed for bond deposit).
+  step("Deploying CrashGame (admin = deployer, operator = deployer)");
   const crash = await viem.deployContract("CrashGame", [
     token.address as Addr,
     paymentHandler.address,
     randomProvider.address,
-    deployer,             // admin (Ownable2Step) — multisig in production
+    deployer,   // admin (Ownable2Step)
     authHub.address,
-    walletAddrs.operator, // initial gameOperator
+    deployer,   // initial gameOperator = deployer
   ]);
   ok(`CrashGame: ${crash.address}`);
   await randomProvider.write.setConsumerStatus([crash.address, true, 1n]);
@@ -537,12 +479,10 @@ async function main() {
   await authHub.write.setSpendTracker([crash.address, true]);
 
   // Testnet-friendly tuning (defaults are production-shape: 1000 EVA bond, 5 EVA max bet).
-  // We mirror what `crash-mainnet.json` uses: 10 EVA bond, 0.1–1 EVA bets, 100 EVA cap per round.
   // NOTE on multiplier convention: CrashGame uses 4-decimal basis points, NOT 2.
   //   10_000   = 1.0000x (this is MIN_MULTIPLIER's threshold zone — below 10_100 reverts)
   //   1_000_000 = 100.0000x
   //   5_000_000 = 500.0000x (DEFAULT_MAX_MULTIPLIER)
-  // The mainnet json description "100.00x" maps to the raw uint32 1_000_000.
   step("Configuring CrashGame (testnet limits)");
   await crash.write.setBetLimits([parseEther("0.1"), parseEther("1")]);
   await crash.write.setMaxPayoutPerRound([parseEther("100")]);
@@ -550,88 +490,19 @@ async function main() {
   await crash.write.setOperatorBondAmount([parseEther("10")]);
   ok("CrashGame configured");
 
-  // Deposit the operator bond. CrashGame tracks `bond[msg.sender]` per operator
-  // and gates `createRound` on the caller's bond ≥ operatorBondAmount. The bond
-  // MUST come from the operator wallet itself — depositing as deployer would
-  // credit the deployer's slot and leave the operator unable to open rounds.
-  //
-  // Flow: deployer funds the operator wallet with just enough ETH for two txs
-  // (approve + depositBond), then transfers the bond amount in EVA. The
-  // operator wallet then approves and deposits from its own client.
+  // Deposit operator bond. Since deployer IS the operator, we can approve + deposit
+  // directly without transferring ETH/EVA to a separate wallet.
   const CRASH_OPERATOR_BOND = parseEther("10");
-  const OPERATOR_GAS_ETH = parseEther("0.002"); // ~2 txs on Arbitrum Sepolia + slack
 
-  step(`Funding operator wallet with gas + bond capital`);
-  const operatorEthBal = await publicClient.getBalance({ address: walletAddrs.operator });
-  if (operatorEthBal < OPERATOR_GAS_ETH) {
-    const delta = OPERATOR_GAS_ETH - operatorEthBal;
-    const ethHash = await deployerWallet.sendTransaction({
-      to: walletAddrs.operator,
-      value: delta,
-    });
-    await publicClient.waitForTransactionReceipt({ hash: ethHash });
-    ok(`Operator ETH: +${formatEther(delta)} (was ${formatEther(operatorEthBal)}, target ${formatEther(OPERATOR_GAS_ETH)})`);
-  } else {
-    ok(`Operator ETH: already ${formatEther(operatorEthBal)} (≥${formatEther(OPERATOR_GAS_ETH)})`);
-  }
-  const evaHash = await token.write.transfer([walletAddrs.operator, CRASH_OPERATOR_BOND]);
-  await publicClient.waitForTransactionReceipt({ hash: evaHash });
-  ok(`Operator EVA: +${formatEther(CRASH_OPERATOR_BOND)} → ${walletAddrs.operator}`);
-
-  // Build a viem walletClient bound to the operator account so it can sign
-  // approve + depositBond txs directly. nonceManager keeps the two sequential
-  // sends from racing on the chain-read nonce.
-  const operatorClient = createWalletClient({
-    account: { ...wallets.operator, nonceManager } as Account,
-    chain: arbitrumSepolia,
-    transport: http(env.rpcUrl),
-  });
-
-  const erc20ApproveAbi = [
-    {
-      type: "function",
-      name: "approve",
-      stateMutability: "nonpayable",
-      inputs: [
-        { name: "spender", type: "address" },
-        { name: "amount", type: "uint256" },
-      ],
-      outputs: [{ name: "", type: "bool" }],
-    },
-  ] as const;
-  const depositBondAbi = [
-    {
-      type: "function",
-      name: "depositBond",
-      stateMutability: "nonpayable",
-      inputs: [{ name: "amount", type: "uint256" }],
-      outputs: [],
-    },
-  ] as const;
-
-  step(`Operator approves CrashGame for ${formatEther(CRASH_OPERATOR_BOND)} EVA`);
-  const approveHash = await operatorClient.writeContract({
-    address: token.address as Addr,
-    abi: erc20ApproveAbi,
-    functionName: "approve",
-    args: [crash.address, CRASH_OPERATOR_BOND],
-  });
-  await publicClient.waitForTransactionReceipt({ hash: approveHash });
-  ok(`approve mined: ${approveHash}`);
-
-  step(`Operator deposits ${formatEther(CRASH_OPERATOR_BOND)} EVA bond on CrashGame`);
-  const depositHash = await operatorClient.writeContract({
-    address: crash.address,
-    abi: depositBondAbi,
-    functionName: "depositBond",
-    args: [CRASH_OPERATOR_BOND],
-  });
+  step(`Deployer approves + deposits ${formatEther(CRASH_OPERATOR_BOND)} EVA bond on CrashGame`);
+  await token.write.approve([crash.address, CRASH_OPERATOR_BOND]);
+  const depositHash = await crash.write.depositBond([CRASH_OPERATOR_BOND]);
   await publicClient.waitForTransactionReceipt({ hash: depositHash });
-  ok(`Bond deposited by operator (${walletAddrs.operator}): ${depositHash}`);
+  ok(`Bond deposited by deployer (${deployer}): ${depositHash}`);
 
   // ── 7. Bankroll each game ─────────────────────────────────────────────
   banner("7. Bankrolling games");
-  for (const [label, game] of [
+  const games = [
     ["Roulette", roulette],
     ["Slots", slots],
     ["Plinko", plinko],
@@ -639,50 +510,32 @@ async function main() {
     ["PaymentOnlyGameAdapter", payAdapter],
     ["ProgressiveJackpot", pj],
     ["CrashGame", crash],
-  ] as const) {
-    await token.write.transfer([game.address, GAME_BANKROLL]);
+  ] as const;
+
+  // Query remaining EVA balance and split evenly across all games
+  const deployerEvaBalance = await publicClient.readContract({
+    address: token.address as Addr,
+    abi: [{ type: "function", name: "balanceOf", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" }],
+    functionName: "balanceOf",
+    args: [deployer],
+  }) as bigint;
+  const GAME_BANKROLL = deployerEvaBalance / BigInt(games.length);
+  console.log(`  Deployer EVA balance: ${formatEther(deployerEvaBalance)} → ${formatEther(GAME_BANKROLL)} EVA per game`);
+
+  for (const [label, game] of games) {
+    if (GAME_BANKROLL > 0n) {
+      await token.write.transfer([game.address, GAME_BANKROLL]);
+    }
     ok(`Transferred ${parseFloat((Number(GAME_BANKROLL) / 1e18).toFixed(2))} EVA → ${label}`);
   }
 
-  // ── 8. Register VRF consumers on the Chainlink subscription ───────────
-  banner("8. Chainlink VRF subscription wiring");
-  console.log(
-    "Adding RandomProvider + TicketLottery as consumers on subscription " +
-      env.vrfSubscriptionId.toString(),
-  );
-
-  await addVrfConsumer(
-    deployerWallet, publicClient, env.vrfCoordinator,
-    env.vrfSubscriptionId, randomProvider.address, "RandomProvider",
-  );
-  await addVrfConsumer(
-    deployerWallet, publicClient, env.vrfCoordinator,
-    env.vrfSubscriptionId, lottery.address, "TicketLottery",
-  );
-
-  // Verify the subscription sees both
-  try {
-    const sub = await publicClient.readContract({
-      address: env.vrfCoordinator,
-      abi: VRF_COORD_ABI,
-      functionName: "getSubscription",
-      args: [env.vrfSubscriptionId],
-    });
-    const consumers = sub[4] as readonly Address[];
-    console.log(`  Subscription LINK balance:    ${sub[0]} juels`);
-    console.log(`  Subscription native balance:  ${sub[1]} wei`);
-    console.log(`  Subscription owner:           ${sub[3]}`);
-    console.log(`  Subscription consumers (${consumers.length}):`);
-    for (const c of consumers) {
-      const tag =
-        c.toLowerCase() === randomProvider.address.toLowerCase() ? "  ← RandomProvider"
-        : c.toLowerCase() === lottery.address.toLowerCase()        ? "  ← TicketLottery"
-        : "";
-      console.log(`    ${c}${tag}`);
-    }
-  } catch (e) {
-    console.warn("  ⚠ Could not read subscription state:", (e as Error).message);
-  }
+  // ── 8. VRF consumer registration (manual) ────────────────────────────
+  banner("8. Chainlink VRF — add consumers MANUALLY at vrf.chain.link");
+  console.log(`  Subscription ID: ${env.vrfSubscriptionId.toString()}`);
+  console.log(`  Add the following addresses as consumers:`);
+  console.log(`    RandomProvider:  ${randomProvider.address}`);
+  console.log(`    TicketLottery:   ${lottery.address}`);
+  console.log(`  → Go to https://vrf.chain.link and add them under your subscription.`);
 
   // ── 9. Save deployment ────────────────────────────────────────────────
   banner("9. Saving deployment");
