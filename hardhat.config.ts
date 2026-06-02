@@ -54,7 +54,7 @@ const config: HardhatUserConfig = {
     arbitrumSepolia: {
       type: "http",
       chainType: "generic",
-      url: rpcSepolia,
+      url: rpcSepolia || "https://sepolia-rollup.arbitrum.io/rpc",
       accounts: privSepolia ? [privSepolia] : [],
     },
   },
