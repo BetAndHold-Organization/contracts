@@ -738,6 +738,15 @@ contract CrashGame is ICrashGame, PushVRFGame {
         roundClaimableRemaining[bet.roundId] -= payout;
 
         emit PayoutClaimed(bet.roundId, msg.sender, req.betId, payout);
+
+        // Standardized event for cross-game indexers (IGameEvents)
+        emit BetSettled(
+            bet.roundId,
+            msg.sender,
+            payout,
+            abi.encode(req.betId, bet.mode, bet.autoCashoutMultiplier)
+        );
+
         return (true, payout, 0);
     }
 
@@ -1096,6 +1105,14 @@ contract CrashGame is ICrashGame, PushVRFGame {
             netAmount,
             mode,
             autoCashoutMultiplier
+        );
+
+        // Standardized event for cross-game indexers (IGameEvents)
+        emit BetPlaced(
+            currentRoundId,
+            player,
+            amount,
+            abi.encode(betId, netAmount, mode, autoCashoutMultiplier)
         );
     }
 
