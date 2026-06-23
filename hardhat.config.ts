@@ -61,6 +61,21 @@ const config: HardhatUserConfig = {
   paths: {
     sources: "./contracts",
   },
+  // Hardhat 3's built-in descriptors ship Arbitrum Sepolia under the WRONG chainId
+  // (42170 = Arbitrum Nova), so verifying on 421614 fails with "chain not supported".
+  // Register the correct descriptor pointing at Arbiscan Sepolia.
+  chainDescriptors: {
+    421614: {
+      name: "Arbitrum Sepolia",
+      blockExplorers: {
+        etherscan: {
+          name: "Arbiscan",
+          url: "https://sepolia.arbiscan.io",
+          apiUrl: "https://api-sepolia.arbiscan.io/api",
+        },
+      },
+    },
+  },
   verify: {
     etherscan: {
       apiKey: arbiscanKey,
