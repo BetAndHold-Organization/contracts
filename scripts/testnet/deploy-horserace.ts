@@ -49,7 +49,7 @@ const BET_TIERS = [parseEther("0.2"), parseEther("0.5"), parseEther("1")];
 // Hash del engineConfig v1 del backend (eva-horse-race-game), congelado por
 // simulación Monte Carlo el 2026-06-13. Ver backend/src/engine/engineConfig.ts.
 const DEFAULT_ENGINE_CONFIG_HASH =
-  "0xa11682cbd58ab09dcf78a6a18ad63f8557ca2517b6e7f5d60ac366193484db25" as const;
+  "0x8614044601b8972eac53d09e37d694b96c7b186ab49f3f8740a4a03089ee047f" as const;
 
 const DEFAULT_BANKROLL_EVA = "200";
 const OPERATOR_MIN_ETH = parseEther("0.05");
