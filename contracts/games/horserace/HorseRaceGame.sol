@@ -45,7 +45,8 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     // CONSTANTS
     // ═══════════════════════════════════════════════════════════════════════
 
-    uint8 public constant LANES = 4;
+    uint8 public constant MIN_LANES = 2;
+    uint8 public constant MAX_LANES = 8;
     uint8 public constant HOUSE_LANE_SENTINEL = 255;
     uint16 public constant MAX_BPS = 10_000;
     uint32 public constant EMERGENCY_GRACE_SECONDS = 30;
@@ -93,7 +94,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     uint256 public nextBetId;   // first bet gets id 1
 
     mapping(uint256 => Race) private _races;
-    mapping(uint256 => Seat[4]) private _seats;
+    mapping(uint256 => Seat[]) private _seats;
     mapping(bytes32 => uint256) public roomToRace;
     mapping(uint256 => uint256) public vrfRequestToRace;
     mapping(uint256 => mapping(address => bool)) public hasJoined;
@@ -110,6 +111,11 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
 
     /// @notice Hash of the off-chain engine parameters; snapshotted per race at lock.
     bytes32 public currentEngineConfigHash;
+
+    /// @notice Number of lanes (players) for NEW races, changeable by the owner
+    ///         (`setLanes`). In-flight races keep the count they were created with
+    ///         (snapshotted into `Race.laneCount` at createRace).
+    uint8 public lanes = 4;
 
     /// @notice Game-level ban list (the PaymentHandler blacklist applies on top).
     mapping(address => bool) public bannedPlayers;
@@ -152,6 +158,14 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         race.betAmount = betAmount;
         race.commitHash = commitHash;
         race.winnerLane = HOUSE_LANE_SENTINEL;
+        // Snapshot the field size so an owner changing `lanes` mid-flight never
+        // affects a race already created. Pre-size the seat array (players fill
+        // lanes 0..k-1; the rest stay house lanes with player == address(0)).
+        uint8 n = lanes;
+        race.laneCount = n;
+        for (uint8 i = 0; i < n; i++) {
+            _seats[raceId].push();
+        }
         roomToRace[roomId] = raceId;
 
         emit RaceCreated(raceId, roomId, betAmount, commitHash);
@@ -181,7 +195,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
 
         // Fees read from the PaymentHandler at lock time — never hardcoded.
         uint256 netPerSeat = (race.betAmount * paymentHandler.getNetStakeBps(address(this))) / MAX_BPS;
-        uint256 houseTopUp = uint256(LANES - k) * netPerSeat;
+        uint256 houseTopUp = uint256(race.laneCount - k) * netPerSeat;
 
         // Exposure must cover the worst bankroll outflow beyond what this race
         // brought in: a player winning the full pot (houseTopUp) or a gross
@@ -220,7 +234,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         }
         if (!race.vrfFulfilled) revert VRFNotFulfilled();
         if (keccak256(abi.encodePacked(serverSeed)) != race.commitHash) revert InvalidServerSeed();
-        if (winnerLane >= LANES) revert InvalidWinnerLane(winnerLane);
+        if (winnerLane >= race.laneCount) revert InvalidWinnerLane(winnerLane);
 
         _unlockExposure(race.exposureLocked, 0);
 
@@ -315,7 +329,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         if (race.state != RaceState.Open) {
             revert InvalidRaceState(RaceState.Open, race.state);
         }
-        if (race.playerCount >= LANES) revert RaceFull();
+        if (race.playerCount >= race.laneCount) revert RaceFull();
         if (bannedPlayers[bettor]) revert PlayerIsBanned(bettor);
         if (hasJoined[raceId][bettor]) revert AlreadyJoined(bettor);
 
@@ -442,6 +456,15 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         emit PlayerBanStatusUpdated(player, banned);
     }
 
+    /// @notice Set the number of lanes (players) for NEW races. Races already
+    ///         created keep their own `laneCount` (snapshotted at createRace), so
+    ///         changing this never affects an in-flight race.
+    function setLanes(uint8 count) external onlyOwner {
+        if (count < MIN_LANES || count > MAX_LANES) revert ConfigOutOfBounds();
+        lanes = count;
+        emit LanesUpdated(count);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // VIEWS
     // ═══════════════════════════════════════════════════════════════════════
@@ -452,7 +475,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     }
 
     /// @inheritdoc IHorseRaceGame
-    function getSeats(uint256 raceId) external view returns (Seat[4] memory) {
+    function getSeats(uint256 raceId) external view returns (Seat[] memory) {
         return _seats[raceId];
     }
 

@@ -55,10 +55,11 @@ interface IHorseRaceGame {
         uint256 vrfRandomWord;
         bool vrfFulfilled;
         uint256 totalNetCollected;  // Σ actual net stakes from real seats
-        uint256 houseTopUp;         // (4 - playerCount) * netPerSeat (formula)
+        uint256 houseTopUp;         // (laneCount - playerCount) * netPerSeat (formula)
         uint256 exposureLocked;     // amount locked on BaseGame.lockedExposure for this race
         bytes32 engineConfigHash;   // engine parameter snapshot for this race
         bytes32 carrotDataHash;     // anchored at settle for off-chain verification
+        uint8 laneCount;            // field size (players) snapshotted at createRace from `lanes`
     }
 
     struct Seat {
@@ -120,6 +121,8 @@ interface IHorseRaceGame {
     event EngineConfigHashUpdated(bytes32 hash);
 
     event PlayerBanStatusUpdated(address indexed player, bool banned);
+
+    event LanesUpdated(uint8 lanes);
 
     // ═══════════════════════════════════════════════════════════════════════
     // OPERATOR LIFECYCLE
@@ -186,7 +189,7 @@ interface IHorseRaceGame {
 
     function getRace(uint256 raceId) external view returns (Race memory);
 
-    function getSeats(uint256 raceId) external view returns (Seat[4] memory);
+    function getSeats(uint256 raceId) external view returns (Seat[] memory);
 
     function getRaceIdByRoom(bytes32 roomId) external view returns (uint256);
 }

@@ -1062,6 +1062,12 @@ describe("HorseRaceGame — admin", () => {
 
     await ctx.game.write.setPlayerBanned([playerA, true]);
     expect(await ctx.game.read.bannedPlayers([playerA])).to.equal(true);
+
+    await ctx.game.write.setLanes([6]);
+    expect(await ctx.game.read.lanes()).to.equal(6);
+    await expectRevert(ctx.game.write.setLanes([1]), "ConfigOutOfBounds"); // < MIN_LANES
+    await expectRevert(ctx.game.write.setLanes([9]), "ConfigOutOfBounds"); // > MAX_LANES
+    await ctx.game.write.setLanes([4]); // restore default
   });
 
   it("setters reject non-owner callers", async () => {
@@ -1072,6 +1078,44 @@ describe("HorseRaceGame — admin", () => {
     await expectRevert(strangerGame.write.setRefundBps([9000]), "Ownable: caller is not the owner");
     await expectRevert(strangerGame.write.setEngineConfigHash([ENGINE_HASH]), "Ownable: caller is not the owner");
     await expectRevert(strangerGame.write.setPlayerBanned([playerA, true]), "Ownable: caller is not the owner");
+    await expectRevert(strangerGame.write.setLanes([6]), "Ownable: caller is not the owner");
+  });
+
+  it("setLanes resizes the field for NEW races; in-flight races keep their snapshot", async () => {
+    const ctx = await setup();
+    const opGame = await gameAs(ctx, 3);
+
+    // race A created with the default 4 lanes
+    const roomA = freshRoom();
+    await opGame.write.createRace([roomA, TIER, COMMIT]);
+    const raceA = (await ctx.game.read.getRaceIdByRoom([roomA])) as bigint;
+    expect(((await ctx.game.read.getSeats([raceA])) as any[]).length).to.equal(4);
+    expect(((await ctx.game.read.getRace([raceA])) as any).laneCount).to.equal(4);
+
+    // owner bumps the field to 6
+    await ctx.game.write.setLanes([6]);
+
+    // race B created afterwards → 6 lanes; race A (in-flight) keeps 4
+    const roomB = freshRoom();
+    await opGame.write.createRace([roomB, TIER, COMMIT]);
+    const raceB = (await ctx.game.read.getRaceIdByRoom([roomB])) as bigint;
+    expect(((await ctx.game.read.getSeats([raceB])) as any[]).length).to.equal(6);
+    expect(((await ctx.game.read.getRace([raceB])) as any).laneCount).to.equal(6);
+    expect(((await ctx.game.read.getRace([raceA])) as any).laneCount).to.equal(4);
+
+    // 4 real players fit in the 6-lane race (not full at 4); lock tops up 2 house lanes
+    for (const kk of ["A", "B", "C", "D"] as const) {
+      const pGame = await gameAs(ctx, PLAYER_WALLET[kk]);
+      await pGame.write.joinRace([roomB, ZERO_ADDRESS]);
+    }
+    await opGame.write.lockRace([roomB]);
+    const net = (TIER * 9_700n) / MAX_BPS;
+    expect(((await ctx.game.read.getRace([raceB])) as any).houseTopUp).to.equal(2n * net);
+
+    // a house lane beyond the 4 players (lane 5) is a valid winner now (laneCount = 6)
+    await fulfillVRF(ctx, raceB);
+    await opGame.write.settleRace([raceB, SERVER_SEED, 5, CARROT_HASH]);
+    expect(((await ctx.game.read.getRace([raceB])) as any).winnerLane).to.equal(5);
   });
 
   it("emergencyWithdraw requires pause and zeroes lockedExposure (platform invariant)", async () => {
@@ -1105,8 +1149,8 @@ describe("HorseRaceGame — views", () => {
     const race = (await ctx.game.read.getRace([777n])) as any;
     expect(race.state).to.equal(ST.None);
     expect(await ctx.game.read.getRaceIdByRoom([freshRoom()])).to.equal(0n);
+    // Unknown race → no seats (the dynamic array is only sized at createRace).
     const seats = (await ctx.game.read.getSeats([777n])) as any[];
-    expect(seats.length).to.equal(4);
-    expect(seats[0].player).to.equal(ZERO_ADDRESS);
+    expect(seats.length).to.equal(0);
   });
 });
