@@ -409,11 +409,14 @@ contract CrashGame is ICrashGame, PushVRFGame {
     /**
      * @notice Emergency resolve a stuck round (Running or Crashed) when serverSeed is lost
      * @param roundId The round ID to resolve
-     * @dev Admin-only. Sets 1.02x refund for all players.
-     *      Use this when the backend crashed and lost the serverSeed, leaving a round
-     *      stuck in Running state with no way to call revealSeed().
+     * @dev Callable by a gameOperator OR the owner. Sets 1.02x refund for all players.
+     *      The operator (round-driver backend) uses it during normal ops to clear a round
+     *      stuck in Running with a lost serverSeed; the owner remains able to call it when
+     *      the backend itself is down. The outcome is a fixed 1.02x refund to ALL players
+     *      regardless of caller, so this is not a manipulable escalation.
      */
-    function emergencyResolveRound(uint256 roundId) external onlyOwner {
+    function emergencyResolveRound(uint256 roundId) external {
+        if (!gameOperators[msg.sender] && msg.sender != owner()) revert NotGameOperator();
         Round storage round = rounds[roundId];
         if (round.state != RoundState.Running && round.state != RoundState.Crashed) {
             revert InvalidState(RoundState.Running, round.state);
@@ -738,6 +741,15 @@ contract CrashGame is ICrashGame, PushVRFGame {
         roundClaimableRemaining[bet.roundId] -= payout;
 
         emit PayoutClaimed(bet.roundId, msg.sender, req.betId, payout);
+
+        // Standardized event for cross-game indexers (IGameEvents)
+        emit BetSettled(
+            bet.roundId,
+            msg.sender,
+            payout,
+            abi.encode(req.betId, bet.mode, bet.autoCashoutMultiplier)
+        );
+
         return (true, payout, 0);
     }
 
@@ -1096,6 +1108,14 @@ contract CrashGame is ICrashGame, PushVRFGame {
             netAmount,
             mode,
             autoCashoutMultiplier
+        );
+
+        // Standardized event for cross-game indexers (IGameEvents)
+        emit BetPlaced(
+            currentRoundId,
+            player,
+            amount,
+            abi.encode(betId, netAmount, mode, autoCashoutMultiplier)
         );
     }
 
