@@ -204,6 +204,37 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (deployerWallet.account as any).nonceManager = nonceManager;
 
+  // ── Receipt-wait wrapper ─────────────────────────────────────────────────
+  // Hardhat-toolbox-viem v3 creates each contract with its own internal
+  // walletClient — monkey-patching `deployerWallet.writeContract` does NOT
+  // propagate to `contract.write.X(...)` calls. We have to wrap each contract
+  // at the moment it's returned from `viem.deployContract(...)`. The proxy
+  // on `.write` intercepts every method and awaits the receipt before
+  // returning, guaranteeing the chain has applied tx N before tx N+1 reads
+  // its nonce from getTransactionCount.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _origDeploy = (viem as any).deployContract.bind(viem);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (viem as any).deployContract = async (...args: any[]) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const contract: any = await _origDeploy(...args);
+    if (contract?.write && typeof contract.write === "object") {
+      contract.write = new Proxy(contract.write, {
+        get(target, key) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const fn = (target as any)[key];
+          if (typeof fn !== "function") return fn;
+          return async (...callArgs: unknown[]) => {
+            const hash = (await fn(...callArgs)) as `0x${string}`;
+            await publicClient.waitForTransactionReceipt({ hash });
+            return hash;
+          };
+        },
+      });
+    }
+    return contract;
+  };
+
   const deployerBal = await publicClient.getBalance({ address: deployer });
 
   const wallets = deriveTestnetWallets(env.testnetSeed);
@@ -321,8 +352,10 @@ async function main() {
       awardsTier: true,
     });
   }
-  await pj.write.configureDirectBet([true, directOutcomes]);
-  await pj.write.setDirectFallback([0]);
+  const cdHash = await pj.write.configureDirectBet([true, directOutcomes]);
+  await publicClient.waitForTransactionReceipt({ hash: cdHash });
+  const sdHash = await pj.write.setDirectFallback([0]);
+  await publicClient.waitForTransactionReceipt({ hash: sdHash });
   ok("Direct-bet outcomes configured");
 
   step("Registering PJ as a PaymentHandler game (for direct bets)");
@@ -394,8 +427,10 @@ async function main() {
       enabled: true, tierAdvance: 1, tierResetTo: 0, consolationMultiplier: 0, awardsTier: true,
     });
   }
-  await pj.write.registerGame([roulette.address, rouletteOutcomes]);
-  await pj.write.setGameFallback([roulette.address, 0]);
+  const rgHash = await pj.write.registerGame([roulette.address, rouletteOutcomes]);
+  await publicClient.waitForTransactionReceipt({ hash: rgHash });
+  const sgfHash = await pj.write.setGameFallback([roulette.address, 0]);
+  await publicClient.waitForTransactionReceipt({ hash: sgfHash });
   ok("Roulette registered on PJ for jackpot entries");
 
   // ── 6b. MultiLineSlots ──
