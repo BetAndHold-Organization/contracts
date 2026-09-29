@@ -13,7 +13,7 @@
  *   3. randomProvider.setConsumerStatus(game, true, 1)
  *   4. authHub.setSpendTracker(game, true)
  *   5. authHub.setOperator(horseOperator) + game ya tiene gameOperator del constructor
- *   6. setBetTier × {0.2, 0.5, 1} EVA  +  setEngineConfigHash (frozen engine v1)
+ *   6. setBetTier × HORSE_BET_TIERS (default 0.1 y 0.2 EVA)  +  engineConfigHash v3 en el constructor
  *   7. bankroll EVA + auto-fund operator ETH si hace falta
  *
  * RandomProvider ya es consumer de la subscription VRF (paso por-provider, no
@@ -21,7 +21,8 @@
  *
  * Env opcionales (además de los de loadTestnetEnv):
  *   HORSE_OPERATOR            — wallet operadora del backend (default: deployer)
- *   HORSE_ENGINE_CONFIG_HASH  — hash de engineConfig (default: v1 congelada)
+ *   HORSE_ENGINE_CONFIG_HASH  — hash de engineConfig (default: engine v3)
+ *   HORSE_BET_TIERS           — tiers de sala en EVA, separados por coma (default: "0.1,0.2")
  *   HORSE_BANKROLL_EVA        — bankroll en EVA (default: 200)
  *
  * Actualiza deployments/arbitrumSepolia.json (key contracts.horseRaceGame) y,
@@ -43,13 +44,32 @@ const HOUSE_BPS = 150;    // 1.5%
 const REFERRAL_BPS = 150; // 1.5%
 const JACKPOT_BPS = 0;    // 0%
 
-// Tiers de sala (configurables on-chain después con setBetTier).
-const BET_TIERS = [parseEther("0.2"), parseEther("0.5"), parseEther("1")];
+// Tiers de sala (configurables on-chain después con setBetTier). Arrancan BAJOS
+// a propósito — salas de hasta 0.2 EVA para probar con poca plata; el mínimo de
+// la plataforma es 0.1 EVA. Override: HORSE_BET_TIERS="0.1,0.2,0.5".
+const DEFAULT_BET_TIERS = "0.1,0.2";
 
-// Hash del engineConfig v1 del backend (eva-horse-race-game), congelado por
-// simulación Monte Carlo el 2026-06-13. Ver backend/src/engine/engineConfig.ts.
+function parseTiers(raw: string): bigint[] {
+  const tiers = raw
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+    .map((t) => {
+      if (!/^\d+(\.\d+)?$/.test(t)) throw new Error(`HORSE_BET_TIERS: "${t}" no es un monto en EVA`);
+      return parseEther(t);
+    });
+  if (tiers.length === 0) throw new Error("HORSE_BET_TIERS está vacío");
+  if (tiers.some((t) => t === 0n)) throw new Error("HORSE_BET_TIERS: un tier no puede ser 0");
+  return tiers;
+}
+
+// Hash del engineConfig v3 del backend (horseBackend): casa "90 % del pico",
+// calibrada por Monte Carlo el 2026-07-03. Se deriva del código con
+// engineConfigHash(ENGINE_CONFIG_V1) — ver backend/src/engine/engineConfig.ts.
+// Un hash distinto hace que el verificador provably-fair del front rechace
+// todas las carreras.
 const DEFAULT_ENGINE_CONFIG_HASH =
-  "0x8614044601b8972eac53d09e37d694b96c7b186ab49f3f8740a4a03089ee047f" as const;
+  "0x3527496ef2dd560831b0a1b23a957c75c14becbe778af7fa271d2bb4793304a7" as const;
 
 const DEFAULT_BANKROLL_EVA = "200";
 const OPERATOR_MIN_ETH = parseEther("0.05");
@@ -102,12 +122,14 @@ async function main() {
   const bankrollEva = parseEther(
     (process.env.HORSE_BANKROLL_EVA ?? "").trim() || DEFAULT_BANKROLL_EVA,
   );
+  const BET_TIERS = parseTiers((process.env.HORSE_BET_TIERS ?? "").trim() || DEFAULT_BET_TIERS);
 
   banner("HORSE RACE — Incremental deploy (Arbitrum Sepolia)");
   console.log("Network:           ", networkName, `(chainId ${chainId})`);
   console.log("Deployer:          ", deployer);
   console.log("Horse operator:    ", horseOperator);
   console.log("Engine config hash:", engineConfigHash);
+  console.log("Bet tiers (EVA):   ", BET_TIERS.map((t) => formatEther(t)).join(" / "));
   console.log("EVA token:         ", core.evaToken);
   console.log("PaymentHandler:    ", core.paymentHandler);
   console.log("RandomProvider:    ", core.randomProvider);
@@ -187,7 +209,11 @@ async function main() {
   } else {
     step(`Bankroll: transfiriendo ${formatEther(bankroll)} EVA al juego`);
     await waitTx(await token.write.transfer([game.address, bankroll]));
-    ok(`Bankroll: ${formatEther(bankroll)} EVA (exposure máx/carrera con tier 1 EVA ≈ 2.91 EVA)`);
+    const topTier = BET_TIERS.reduce((a, b) => (a > b ? a : b));
+    ok(
+      `Bankroll: ${formatEther(bankroll)} EVA (exposure máx/carrera con el tier más alto ` +
+        `≈ ${formatEther((topTier * 3n * 9700n) / 10000n)} EVA)`,
+    );
   }
 
   if (horseOperator.toLowerCase() !== deployer.toLowerCase()) {
