@@ -10,9 +10,9 @@ const rpcSepolia = (process.env.ARBITRUM_SEPOLIA_RPC_URL ?? "").trim();
 const privSepolia = (process.env.DEPLOYER_PRIVATE_KEY ?? privMainnet).trim();
 const arbiscanKey = (process.env.MAINNET_ARBISCAN_API_KEY ?? process.env.ARBISCAN_API_KEY ?? "").trim();
 
-if (!rpcMainnet) {
-  throw new Error("Missing MAINNET_ARBITRUM_RPC_URL (or ARBITRUM_RPC_URL)");
-}
+// Allow compile/test to work without mainnet RPC (CI, local dev).
+// Deploy scripts validate the vars they need at runtime.
+const PLACEHOLDER_RPC = "https://arb1.arbitrum.io/rpc";
 
 const config: HardhatUserConfig = {
   plugins: [hardhatToolboxViemPlugin, hardhatVerify],
@@ -48,18 +48,33 @@ const config: HardhatUserConfig = {
     arbitrum: {
       type: "http",
       chainType: "generic",
-      url: rpcMainnet,
+      url: rpcMainnet || PLACEHOLDER_RPC,
       accounts: privMainnet ? [privMainnet] : [],
     },
     arbitrumSepolia: {
       type: "http",
       chainType: "generic",
-      url: rpcSepolia,
+      url: rpcSepolia || "https://sepolia-rollup.arbitrum.io/rpc",
       accounts: privSepolia ? [privSepolia] : [],
     },
   },
   paths: {
     sources: "./contracts",
+  },
+  // Hardhat 3's built-in descriptors ship Arbitrum Sepolia under the WRONG chainId
+  // (42170 = Arbitrum Nova), so verifying on 421614 fails with "chain not supported".
+  // Register the correct descriptor pointing at Arbiscan Sepolia.
+  chainDescriptors: {
+    421614: {
+      name: "Arbitrum Sepolia",
+      blockExplorers: {
+        etherscan: {
+          name: "Arbiscan",
+          url: "https://sepolia.arbiscan.io",
+          apiUrl: "https://api-sepolia.arbiscan.io/api",
+        },
+      },
+    },
   },
   verify: {
     etherscan: {
