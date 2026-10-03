@@ -1,0 +1,30 @@
+{
+  "contract": "HorseRaceGame",
+  "network": "arbitrum",
+  "chainId": 42161,
+  "deployedAt": "2026-10-03T02:14:30.448Z",
+  "deployBlock": "511168595",
+  "deployer": "0xe7e486f42fd93148978fe83326be7f3ce8e3a16a",
+  "horseRaceGame": "0x5f098f63914c1cbc1e350496669cb4da5aca4bf4",
+  "operator": "0x3ef7563Da2556291470823969D6dC26A7F18d8e3",
+  "engineConfigHash": "0x3527496ef2dd560831b0a1b23a957c75c14becbe778af7fa271d2bb4793304a7",
+  "infrastructure": {
+    "token": "0x45D9831d8751B2325f3DBf48db748723726e1C8c",
+    "handler": "0x2a8a553451ba5c14d7a1ee4d3d7d1d2be6f819e8",
+    "randomProvider": "0x6aa57111d6f5970565dc355f87aa75e1609be3d4",
+    "authHub": "0x86543287d870f30dd21320dd10451bf33e64f775",
+    "feeRecipient": "0x2132c5e539F1Da6090424644576ABB5C5aDcdbbd"
+  },
+  "config": {
+    "houseEdgeBps": 150,
+    "referralBps": 150,
+    "jackpotBps": 0,
+    "betTiersEva": [
+      "0.1",
+      "0.2"
+    ],
+    "settleDeadlineSeconds": 300,
+    "lanes": 4
+  },
+  "wiring": "complete"
+}

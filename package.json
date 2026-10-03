@@ -16,6 +16,8 @@
     "configure:slotstable:testnet": "hardhat run scripts/testnet/configure-slotstable.ts --network arbitrumSepolia",
     "deploy:authhub:mainnet": "hardhat run scripts/mainnet/deploy-authhub.ts --network arbitrum",
     "deploy:slotstable:mainnet": "hardhat run scripts/mainnet/deploy-slotstable.ts --network arbitrum",
+    "deploy:horserace:testnet": "hardhat run scripts/testnet/deploy-horserace.ts --network arbitrumSepolia",
+    "deploy:horserace:mainnet": "hardhat run scripts/mainnet/deploy-horserace.ts --network arbitrum",
     "configure:slotstable:mainnet": "hardhat run scripts/mainnet/configure-slotstable.ts --network arbitrum"
   },
   "keywords": [],
