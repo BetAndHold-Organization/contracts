@@ -45,6 +45,12 @@ const config: HardhatUserConfig = {
       type: "edr-simulated",
       chainType: "generic",
     },
+    // `npx hardhat node` target, used by backends/rngService local end-to-end tests
+    localhost: {
+      type: "http",
+      chainType: "generic",
+      url: "http://127.0.0.1:8545",
+    },
     arbitrum: {
       type: "http",
       chainType: "generic",
