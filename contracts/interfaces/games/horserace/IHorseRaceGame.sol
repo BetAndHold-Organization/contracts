@@ -103,10 +103,16 @@ interface IHorseRaceGame {
         uint256 indexed raceId,
         uint8 winnerLane,
         address winner,             // address(0) when a house lane wins
-        uint256 prize,
+        uint256 prize,              // the whole net pot (split by payoutSplitBps)
         bytes32 serverSeed,
         bytes32 carrotDataHash
     );
+
+    /// @notice Final classification and what each lane was paid (0 for house
+    ///         lanes and for places beyond the split).
+    event RacePodium(uint256 indexed raceId, uint8[] ranking, uint256[] payouts);
+
+    event PayoutSplitUpdated(uint16[] bps);
 
     event RaceRefunded(uint256 indexed raceId, bytes32 reason);
 
@@ -139,13 +145,15 @@ interface IHorseRaceGame {
     ///         locks the house top-up exposure and requests VRF.
     function lockRace(bytes32 roomId) external returns (uint256 raceId);
 
-    /// @notice Reveal the server seed and settle. `winnerLane` is computed
-    ///         off-chain by the deterministic engine; `carrotDataHash` anchors
-    ///         the carrot events used, for public verification.
+    /// @notice Reveal the server seed and settle. `ranking` is the finishing
+    ///         order of ALL lanes (ranking[0] = winner), computed off-chain by
+    ///         the deterministic engine; the pot is split over it following
+    ///         `payoutSplitBps` (e.g. 60/30/10). `carrotDataHash` anchors the
+    ///         carrot events used, for public verification.
     function settleRace(
         uint256 raceId,
         bytes32 serverSeed,
-        uint8 winnerLane,
+        uint8[] calldata ranking,
         bytes32 carrotDataHash
     ) external;
 
@@ -192,4 +200,9 @@ interface IHorseRaceGame {
     function getSeats(uint256 raceId) external view returns (Seat[] memory);
 
     function getRaceIdByRoom(bytes32 roomId) external view returns (uint256);
+
+    /// @notice Share of the net pot paid to each finishing place, in bps
+    ///         (index 0 = winner). Places past the array length get nothing;
+    ///         a house horse on a paid place keeps its share in the bankroll.
+    function getPayoutSplitBps() external view returns (uint16[] memory);
 }

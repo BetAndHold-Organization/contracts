@@ -16,7 +16,7 @@ import {IHorseRaceGame} from "../../interfaces/games/horserace/IHorseRaceGame.so
  *                                                 horses, locks exposure, requests VRF
  *     → fulfillRandomness                       — RandomProvider stores the word
  *     → (race runs off-chain, deterministic)
- *     → settleRace(raceId, serverSeed, winnerLane, carrotDataHash)
+ *     → settleRace(raceId, serverSeed, ranking, carrotDataHash)
  *
  *   The canonical operator flow bundles createRace + joinRaceFor×k + lockRace in ONE
  *   `multicallTry` so seats and money move atomically: a sub-call with a stale nonce
@@ -26,10 +26,12 @@ import {IHorseRaceGame} from "../../interfaces/games/horserace/IHorseRaceGame.so
  *
  *   Fees are NEVER hardcoded: the net pot derives from the PaymentHandler config at
  *   lock time (`getNetStakeBps`). With the platform target of 3% total fees:
- *     prize = 4 × tier × 0.97;   max bankroll exposure per race = 3 × tier × 0.97
- *   If a house lane wins, the collected net stakes remain in the bankroll, so the
- *   game's expected value is exactly the handler fees when house horses play a
- *   symmetric strategy (see the engine's house heuristic docs).
+ *     pot = 4 × tier × 0.97;   max bankroll exposure per race = 3 × tier × 0.97
+ *   The pot is split over the finishing order by `payoutSplitBps` (default
+ *   60 / 30 / 10 % for 1st / 2nd / 3rd). The share of a place taken by a house
+ *   horse stays in the bankroll, so the game's expected value is exactly the
+ *   handler fees when house horses play a symmetric strategy (see the engine's
+ *   house heuristic docs) — whatever the split, as long as it sums to 100 %.
  *
  * ## Trust model
  *
@@ -78,6 +80,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     error VRFNotFulfilled();
     error InvalidServerSeed();
     error InvalidWinnerLane(uint8 lane);
+    error InvalidRanking();
     error SettleDeadlineNotPassed(uint64 settleBy);
     error ConfigOutOfBounds();
     // InvalidSignature / ExpiredDeadline / InvalidNonce / NoSessionKey / NotOperator
@@ -120,6 +123,11 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     /// @notice Game-level ban list (the PaymentHandler blacklist applies on top).
     mapping(address => bool) public bannedPlayers;
 
+    /// @notice Share of the net pot per finishing place, in bps (index 0 = winner).
+    ///         Must sum to at most MAX_BPS; the remainder (and every share landing
+    ///         on a house horse) stays in the bankroll.
+    uint16[] private _payoutSplitBps;
+
     // ═══════════════════════════════════════════════════════════════════════
     // CONSTRUCTOR
     // ═══════════════════════════════════════════════════════════════════════
@@ -133,6 +141,9 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         bytes32 engineConfigHash_
     ) PushVRFGame(token, handler, provider, authHub_, "HorseRaceGame", "1", initialOperator) {
         if (engineConfigHash_ == bytes32(0)) revert ConfigOutOfBounds();
+        _payoutSplitBps.push(6_000);
+        _payoutSplitBps.push(3_000);
+        _payoutSplitBps.push(1_000);
         currentEngineConfigHash = engineConfigHash_;
     }
 
@@ -225,7 +236,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     function settleRace(
         uint256 raceId,
         bytes32 serverSeed,
-        uint8 winnerLane,
+        uint8[] calldata ranking,
         bytes32 carrotDataHash
     ) external onlyGameOperator nonReentrant {
         Race storage race = _races[raceId];
@@ -234,7 +245,8 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         }
         if (!race.vrfFulfilled) revert VRFNotFulfilled();
         if (keccak256(abi.encodePacked(serverSeed)) != race.commitHash) revert InvalidServerSeed();
-        if (winnerLane >= race.laneCount) revert InvalidWinnerLane(winnerLane);
+        _checkRanking(ranking, race.laneCount);
+        uint8 winnerLane = ranking[0];
 
         _unlockExposure(race.exposureLocked, 0);
 
@@ -243,24 +255,47 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         race.winnerLane = winnerLane;
         race.carrotDataHash = carrotDataHash;
 
+        // The net pot is split over the finishing order. A place taken by a
+        // house horse (or beyond the split) pays nobody: that share, like the
+        // whole pot under winner-takes-all, simply stays in the bankroll.
         uint256 prize = race.totalNetCollected + race.houseTopUp;
-        address winner = _seats[raceId][winnerLane].player;
-        if (winner != address(0)) {
-            _payPlayer(winner, prize);
+        uint256[] memory payouts = new uint256[](race.laneCount);
+        uint256 places = _payoutSplitBps.length < ranking.length ? _payoutSplitBps.length : ranking.length;
+        for (uint256 place = 0; place < places; place++) {
+            uint8 lane = ranking[place];
+            uint256 share = (prize * _payoutSplitBps[place]) / MAX_BPS;
+            address player = _seats[raceId][lane].player;
+            if (player != address(0) && share > 0) {
+                payouts[lane] = share;
+                _payPlayer(player, share);
+            }
         }
-        // House lane winner: the net pot simply stays in the bankroll.
 
         for (uint8 lane = 0; lane < race.playerCount; lane++) {
             Seat storage seat = _seats[raceId][lane];
             emit BetSettled(
                 seat.betId,
                 seat.player,
-                lane == winnerLane ? prize : 0,
+                payouts[lane],
                 abi.encode(raceId, winnerLane, lane, serverSeed, carrotDataHash)
             );
         }
 
-        emit RaceSettled(raceId, winnerLane, winner, prize, serverSeed, carrotDataHash);
+        emit RacePodium(raceId, ranking, payouts);
+        emit RaceSettled(raceId, winnerLane, _seats[raceId][winnerLane].player, prize, serverSeed, carrotDataHash);
+    }
+
+    /// @dev `ranking` must be a permutation of every lane (0..laneCount-1).
+    function _checkRanking(uint8[] calldata ranking, uint8 laneCount) private pure {
+        if (ranking.length != laneCount) revert InvalidRanking();
+        uint256 seen;
+        for (uint256 i = 0; i < ranking.length; i++) {
+            uint8 lane = ranking[i];
+            if (lane >= laneCount) revert InvalidWinnerLane(lane);
+            uint256 bit = uint256(1) << lane;
+            if (seen & bit != 0) revert InvalidRanking();
+            seen |= bit;
+        }
     }
 
     /// @inheritdoc IHorseRaceGame
@@ -456,6 +491,19 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         emit PlayerBanStatusUpdated(player, banned);
     }
 
+    /// @notice Set how the net pot is split over the finishing order (index 0 =
+    ///         winner), in bps. Must sum to at most MAX_BPS and have at most
+    ///         MAX_LANES entries. Applies to every race settled from now on.
+    function setPayoutSplitBps(uint16[] calldata bps) external onlyOwner {
+        if (bps.length == 0 || bps.length > MAX_LANES) revert ConfigOutOfBounds();
+        uint256 total;
+        for (uint256 i = 0; i < bps.length; i++) total += bps[i];
+        if (total == 0 || total > MAX_BPS) revert ConfigOutOfBounds();
+        delete _payoutSplitBps;
+        for (uint256 i = 0; i < bps.length; i++) _payoutSplitBps.push(bps[i]);
+        emit PayoutSplitUpdated(bps);
+    }
+
     /// @notice Set the number of lanes (players) for NEW races. Races already
     ///         created keep their own `laneCount` (snapshotted at createRace), so
     ///         changing this never affects an in-flight race.
@@ -477,6 +525,11 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     /// @inheritdoc IHorseRaceGame
     function getSeats(uint256 raceId) external view returns (Seat[] memory) {
         return _seats[raceId];
+    }
+
+    /// @inheritdoc IHorseRaceGame
+    function getPayoutSplitBps() external view returns (uint16[] memory) {
+        return _payoutSplitBps;
     }
 
     /// @inheritdoc IHorseRaceGame

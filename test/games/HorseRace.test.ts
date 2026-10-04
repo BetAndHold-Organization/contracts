@@ -681,7 +681,7 @@ describe("HorseRaceGame — fulfillRandomness / handleRandomFailure", () => {
     // settle the race, then a late fulfillment must be a no-op
     await fulfillVRF(ctx, raceId);
     const opGame = await gameAs(ctx, 3);
-    await opGame.write.settleRace([raceId, SERVER_SEED, 0, CARROT_HASH]);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
 
     const race = (await ctx.game.read.getRace([raceId])) as any;
     await asProvider.write.fulfillRandomness([race.vrfRequestId, 7n, []]);
@@ -728,10 +728,11 @@ describe("HorseRaceGame — settleRace", () => {
 
     const before = await ctx.token.read.balanceOf([playerA]);
     const opGame = await gameAs(ctx, 3);
-    await opGame.write.settleRace([raceId, SERVER_SEED, 0, CARROT_HASH]);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
 
     const prize = 4n * NET_PER_SEAT;
-    expect((await ctx.token.read.balanceOf([playerA])) - before).to.equal(prize);
+    const firstShare = (prize * 6_000n) / 10_000n; // 60 % of the pot; 2nd/3rd went to house horses
+    expect((await ctx.token.read.balanceOf([playerA])) - before).to.equal(firstShare);
     expect(await ctx.game.read.lockedExposure()).to.equal(0n);
 
     const race = (await ctx.game.read.getRace([raceId])) as any;
@@ -742,14 +743,33 @@ describe("HorseRaceGame — settleRace", () => {
 
     const settledEnvelope = await ctx.game.getEvents.BetSettled();
     expect(settledEnvelope.length).to.equal(1);
-    expect(settledEnvelope[0].args.payout).to.equal(prize);
+    expect(settledEnvelope[0].args.payout).to.equal(firstShare);
     const raceSettled = await ctx.game.getEvents.RaceSettled();
     expect(raceSettled.length).to.equal(1);
     expect(raceSettled[0].args.winner.toLowerCase()).to.equal(playerA.toLowerCase());
-    expect(raceSettled[0].args.prize).to.equal(prize);
+    expect(raceSettled[0].args.prize).to.equal(prize); // the whole pot, pre-split
+    const podium = await ctx.game.getEvents.RacePodium();
+    expect(podium.length).to.equal(1);
+    expect(podium[0].args.ranking).to.deep.equal([0, 1, 2, 3]);
+    expect(podium[0].args.payouts).to.deep.equal([firstShare, 0n, 0n, 0n]);
   });
 
-  it("k=1, house lane wins: pot stays in the bankroll, player envelope pays 0", async () => {
+  it("k=1, player finishes 2nd behind a house horse: still paid the 30 % share", async () => {
+    const ctx = await setup();
+    const { raceId } = await openLockRace(ctx, 1);
+    await fulfillVRF(ctx, raceId);
+    const before = await ctx.token.read.balanceOf([playerA]);
+    const opGame = await gameAs(ctx, 3);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [2, 0, 1, 3], CARROT_HASH]);
+    const prize = 4n * NET_PER_SEAT;
+    expect((await ctx.token.read.balanceOf([playerA])) - before).to.equal((prize * 3_000n) / 10_000n);
+    const race = (await ctx.game.read.getRace([raceId])) as any;
+    expect(race.winnerLane).to.equal(2); // the house horse; the pot's 60 % stayed in the bankroll
+    const raceSettled = await ctx.game.getEvents.RaceSettled();
+    expect(raceSettled[0].args.winner).to.equal(ZERO_ADDRESS);
+  });
+
+  it("k=1, house lanes take the podium: pot stays in the bankroll, player envelope pays 0", async () => {
     const ctx = await setup();
     const { raceId } = await openLockRace(ctx, 1);
     await fulfillVRF(ctx, raceId);
@@ -757,7 +777,7 @@ describe("HorseRaceGame — settleRace", () => {
     const gameBalBefore = await ctx.token.read.balanceOf([ctx.game.address]);
     const playerBalBefore = await ctx.token.read.balanceOf([playerA]);
     const opGame = await gameAs(ctx, 3);
-    await opGame.write.settleRace([raceId, SERVER_SEED, 3, CARROT_HASH]);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [3, 1, 2, 0], CARROT_HASH]); // player 4th
 
     expect(await ctx.token.read.balanceOf([ctx.game.address])).to.equal(gameBalBefore);
     expect(await ctx.token.read.balanceOf([playerA])).to.equal(playerBalBefore);
@@ -769,20 +789,61 @@ describe("HorseRaceGame — settleRace", () => {
     expect(raceSettled[0].args.winner).to.equal(ZERO_ADDRESS);
   });
 
-  it("k=4: winner takes the pot, losers settle at 0", async () => {
+  it("k=4: the pot is split 60 / 30 / 10 over the podium, 4th settles at 0", async () => {
     const ctx = await setup();
     const { raceId } = await openLockRace(ctx, 4);
     await fulfillVRF(ctx, raceId);
 
-    const beforeB = await ctx.token.read.balanceOf([playerB]);
+    const before = await Promise.all([playerA, playerB, playerC, playerD].map((p) => ctx.token.read.balanceOf([p])));
     const opGame = await gameAs(ctx, 3);
-    await opGame.write.settleRace([raceId, SERVER_SEED, 1, CARROT_HASH]);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [1, 3, 0, 2], CARROT_HASH]); // B, D, A, C
+    const after = await Promise.all([playerA, playerB, playerC, playerD].map((p) => ctx.token.read.balanceOf([p])));
+    const pot = 4n * NET_PER_SEAT;
+    const gained = after.map((a, i) => a - before[i]); // A, B, C, D
+    expect(gained).to.deep.equal([(pot * 1_000n) / 10_000n, (pot * 6_000n) / 10_000n, 0n, (pot * 3_000n) / 10_000n]);
+    expect(gained.reduce((x, y) => x + y, 0n)).to.equal(pot); // the house keeps nothing of a full field
 
-    expect((await ctx.token.read.balanceOf([playerB])) - beforeB).to.equal(4n * NET_PER_SEAT);
     const settled = await ctx.game.getEvents.BetSettled();
     expect(settled.length).to.equal(4);
-    const payouts = settled.map((e: any) => e.args.payout);
-    expect(payouts.filter((p: bigint) => p === 0n).length).to.equal(3);
+    const podium = await ctx.game.getEvents.RacePodium();
+    expect(podium[0].args.ranking).to.deep.equal([1, 3, 0, 2]);
+    expect(podium[0].args.payouts).to.deep.equal([gained[0], gained[1], gained[2], gained[3]]);
+  });
+
+  it("rejects a ranking that is not a permutation of the lanes", async () => {
+    const ctx = await setup();
+    const { raceId } = await openLockRace(ctx, 2);
+    await fulfillVRF(ctx, raceId);
+    const opGame = await gameAs(ctx, 3);
+    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2], CARROT_HASH]), "InvalidRanking"); // short
+    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3, 3], CARROT_HASH]), "InvalidRanking"); // long
+    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, [0, 0, 1, 2], CARROT_HASH]), "InvalidRanking"); // dup
+    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, [], CARROT_HASH]), "InvalidRanking");
+    await opGame.write.settleRace([raceId, SERVER_SEED, [3, 2, 1, 0], CARROT_HASH]);
+  });
+
+  it("the owner can change the split (winner-takes-all, or 50/50); bad splits revert", async () => {
+    const ctx = await setup();
+    expect(await ctx.game.read.getPayoutSplitBps()).to.deep.equal([6000, 3000, 1000]);
+    await expectRevert(ctx.game.write.setPayoutSplitBps([[6000, 5000]]), "ConfigOutOfBounds"); // > 100 %
+    await expectRevert(ctx.game.write.setPayoutSplitBps([[]]), "ConfigOutOfBounds");
+    await expectRevert(ctx.game.write.setPayoutSplitBps([[0, 0]]), "ConfigOutOfBounds");
+    await expectRevert(ctx.game.write.setPayoutSplitBps([[1, 1, 1, 1, 1, 1, 1, 1, 1]]), "ConfigOutOfBounds"); // > MAX_LANES
+    const opGame = await gameAs(ctx, 3);
+    await expectRevert(opGame.write.setPayoutSplitBps([[10000]]), "Ownable: caller is not the owner");
+
+    await ctx.game.write.setPayoutSplitBps([[10000]]);
+    expect(await ctx.game.read.getPayoutSplitBps()).to.deep.equal([10000]);
+    const updated = await ctx.game.getEvents.PayoutSplitUpdated();
+    expect(updated[updated.length - 1].args.bps).to.deep.equal([10000]);
+
+    const { raceId } = await openLockRace(ctx, 2);
+    await fulfillVRF(ctx, raceId);
+    const beforeA = await ctx.token.read.balanceOf([playerA]);
+    const beforeB = await ctx.token.read.balanceOf([playerB]);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
+    expect((await ctx.token.read.balanceOf([playerA])) - beforeA).to.equal(4n * NET_PER_SEAT);
+    expect((await ctx.token.read.balanceOf([playerB])) - beforeB).to.equal(0n);
   });
 
   it("works while paused (payouts continue during incident response)", async () => {
@@ -791,7 +852,7 @@ describe("HorseRaceGame — settleRace", () => {
     await fulfillVRF(ctx, raceId);
     await ctx.game.write.pause();
     const opGame = await gameAs(ctx, 3);
-    await opGame.write.settleRace([raceId, SERVER_SEED, 0, CARROT_HASH]);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
     const race = (await ctx.game.read.getRace([raceId])) as any;
     expect(race.state).to.equal(ST.Settled);
   });
@@ -800,26 +861,28 @@ describe("HorseRaceGame — settleRace", () => {
     const ctx = await setup();
     const opGame = await gameAs(ctx, 3);
 
-    await expectRevert(opGame.write.settleRace([42n, SERVER_SEED, 0, CARROT_HASH]), "InvalidRaceState");
+    await expectRevert(opGame.write.settleRace([42n, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]), "InvalidRaceState");
 
     const { raceId } = await openLockRace(ctx, 1);
-    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, 0, CARROT_HASH]), "VRFNotFulfilled");
+    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]), "VRFNotFulfilled");
 
     await fulfillVRF(ctx, raceId);
     await expectRevert(
-      opGame.write.settleRace([raceId, keccak256(toHex("wrong")), 0, CARROT_HASH]),
+      opGame.write.settleRace([raceId, keccak256(toHex("wrong")), [0, 1, 2, 3], CARROT_HASH]),
       "InvalidServerSeed",
     );
-    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, 4, CARROT_HASH]), "InvalidWinnerLane");
+    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, [4, 1, 2, 3], CARROT_HASH]), "InvalidWinnerLane");
 
     const strangerGame = await gameAs(ctx, 12);
+    // EDR does not name the inherited NotGameOperator() on this calldata shape
+    // (dynamic uint8[]); it reports the raw selector instead.
     await expectRevert(
-      strangerGame.write.settleRace([raceId, SERVER_SEED, 0, CARROT_HASH]),
-      "NotGameOperator",
+      strangerGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]),
+      "3bc1fd98", // NotGameOperator()
     );
 
-    await opGame.write.settleRace([raceId, SERVER_SEED, 0, CARROT_HASH]);
-    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, 0, CARROT_HASH]), "InvalidRaceState");
+    await opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
+    await expectRevert(opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]), "InvalidRaceState");
   });
 });
 
@@ -894,7 +957,7 @@ describe("HorseRaceGame — emergencyRefundRace", () => {
 
     // late settle still possible if nobody pulled the valve
     const opGame = await gameAs(ctx, 3);
-    await opGame.write.settleRace([raceId, SERVER_SEED, 0, CARROT_HASH]);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
     const strangerGame = await gameAs(ctx, 12);
     await expectRevert(strangerGame.write.emergencyRefundRace([raceId]), "InvalidRaceState");
   });
@@ -1114,7 +1177,7 @@ describe("HorseRaceGame — admin", () => {
 
     // a house lane beyond the 4 players (lane 5) is a valid winner now (laneCount = 6)
     await fulfillVRF(ctx, raceB);
-    await opGame.write.settleRace([raceB, SERVER_SEED, 5, CARROT_HASH]);
+    await opGame.write.settleRace([raceB, SERVER_SEED, [5, 0, 1, 2, 3, 4], CARROT_HASH]);
     expect(((await ctx.game.read.getRace([raceB])) as any).winnerLane).to.equal(5);
   });
 

@@ -5,7 +5,7 @@
  *
  * Valida end-to-end CONTRA EL VRF REAL (no el mock de los tests de hardhat):
  *   approve → createRace → joinRace (deployer en lane 0) → lockRace (dispara VRF)
- *   → poll vrfFulfilled → settleRace(winnerLane=0) → el jugador cobra el pot.
+ *   → poll vrfFulfilled → settleRace(ranking [0,1,2,3]) → el jugador cobra el 60 % del pot.
  *
  * El deployer hace de operador Y de único jugador real; las otras 3 lanes son
  * caballos de la casa. Settlear con winnerLane=0 hace que el deployer recupere
@@ -121,11 +121,11 @@ async function main() {
   }
   ok(`VRF fulfilled — randomWord = ${race.vrfRandomWord}`);
 
-  // ── settleRace (winnerLane=0 → el deployer cobra, recupera la apuesta) ──
+  // ── settleRace (ranking [0,1,2,3]: el deployer gana y cobra el 60 % del pot) ──
   const carrotHash = keccak256(toHex("smoke-carrots"));
-  step("settleRace(winnerLane=0, reveal serverSeed)");
+  step("settleRace(ranking [0,1,2,3], reveal serverSeed)");
   const balBefore = (await token.read.balanceOf([me])) as bigint;
-  await waitTx(await game.write.settleRace([raceId, serverSeed, 0, carrotHash]));
+  await waitTx(await game.write.settleRace([raceId, serverSeed, [0, 1, 2, 3], carrotHash]));
   const balAfter = (await token.read.balanceOf([me])) as bigint;
   race = (await game.read.getRace([raceId])) as any;
   ok(`state=Settled, winnerLane=${race.winnerLane}, prize cobrado = ${formatEther(balAfter - balBefore)} EVA`);
