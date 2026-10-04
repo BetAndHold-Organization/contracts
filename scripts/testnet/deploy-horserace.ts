@@ -21,7 +21,7 @@
  *
  * Env opcionales (además de los de loadTestnetEnv):
  *   HORSE_OPERATOR            — wallet operadora del backend (default: deployer)
- *   HORSE_ENGINE_CONFIG_HASH  — hash de engineConfig (default: engine v3)
+ *   HORSE_ENGINE_CONFIG_HASH  — hash de engineConfig (default: engine v4)
  *   HORSE_BET_TIERS           — tiers de sala en EVA, separados por coma (default: "0.1,0.2")
  *   HORSE_BANKROLL_EVA        — bankroll en EVA (default: 200)
  *
@@ -69,7 +69,7 @@ function parseTiers(raw: string): bigint[] {
 // Un hash distinto hace que el verificador provably-fair del front rechace
 // todas las carreras.
 const DEFAULT_ENGINE_CONFIG_HASH =
-  "0x3527496ef2dd560831b0a1b23a957c75c14becbe778af7fa271d2bb4793304a7" as const;
+  "0x8043770ebc7ab1e5aace82d064c4d20ad15dbf05d2b01a8e9738997cd04805b7" as const;
 
 const DEFAULT_BANKROLL_EVA = "200";
 const OPERATOR_MIN_ETH = parseEther("0.05");
