@@ -2,7 +2,7 @@
   "_comment": "Mainnet deployment manifest. Single source of truth for which version is live for each contract and where to find the full artifact. Updated on every mainnet deploy. The indexer / backend should read this file (or its raw URL on GitHub) to discover what to track. Per-file artifacts under this directory remain the authoritative record for config + roles for a given version; this index just answers 'what's live now and where do I find it'.",
   "network": "arbitrum",
   "chainId": 42161,
-  "lastUpdated": "2026-10-03",
+  "lastUpdated": "2026-10-05",
   "platform": {
     "current": "V6",
     "artifact": "arb-mainnet-v6.json",
@@ -84,11 +84,11 @@
       "_note": "First mainnet deploy."
     },
     "horseRaceGame": {
-      "current": "V6",
+      "current": "V6.1",
       "artifact": "horserace-mainnet.json",
-      "address": "0x5f098f63914c1cbc1e350496669cb4da5aca4bf4",
+      "address": "0x7b614cf2dbd4b4af6dd1c9444c4e3a3097150191",
       "contract": "HorseRaceGame",
-      "_note": "Demo launch 2026-10-03, unlisted in the shell. Operator 0x3ef7563Da2556291470823969D6dC26A7F18d8e3, tiers 0.1/0.2 EVA, fees 150/150/0, deploy block 511168595."
+      "_note": "Podium payout 60/30/10 + engine v4, deployed 2026-10-05 (block 512058087), unlisted demo. Operator 0x3ef7563Da2556291470823969D6dC26A7F18d8e3, tiers 0.1/0.2 EVA, fees 150/150/0. Previous winner-takes-all instance 0x5f098f63914c1cbc1e350496669cb4da5aca4bf4 (horserace-mainnet-v1.json) paused and drained after migration."
     },
     "ticketLottery": {
       "current": "V6",
