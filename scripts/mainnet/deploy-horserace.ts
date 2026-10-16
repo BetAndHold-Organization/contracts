@@ -374,6 +374,9 @@ async function main() {
 
   step(`setSettleDeadlineSeconds(${SETTLE_DEADLINE_SECONDS})`);
   await wait(await game.write.setSettleDeadlineSeconds([SETTLE_DEADLINE_SECONDS]));
+  // Revelación defaults come from the constructor (3 % of every pot, pays 1 in 20); shown for the record.
+  const [revPool, revBps, revOdds] = (await game.read.getRevelacion()) as [bigint, number, number];
+  step(`Revelación: ${revBps / 100} % del pozo al pool, lo paga 1 de cada ${revOdds} ganadores (pool ${formatEther(revPool)} EVA) — setRevelacion(bps, odds) para cambiarlo`);
   ok("Settle deadline set");
 
   // ── 4. Funding ───────────────────────────────────────────────────────────

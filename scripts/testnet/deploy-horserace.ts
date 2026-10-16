@@ -197,6 +197,8 @@ async function main() {
     ok(`Tier ${formatEther(tier)} EVA habilitado`);
   }
   ok(`engineConfigHash ya seteado en el constructor: ${engineConfigHash}`);
+  const [revPool, revBps, revOdds] = (await game.read.getRevelacion()) as [bigint, number, number];
+  ok(`Revelación: ${revBps / 100} % del pozo al pool, paga 1 de cada ${revOdds} (pool ${revPool} wei)`);
 
   // ── 4. Funding ───────────────────────────────────────────────────────────
   banner("4. Funding");

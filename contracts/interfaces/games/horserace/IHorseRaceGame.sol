@@ -114,6 +114,12 @@ interface IHorseRaceGame {
 
     event PayoutSplitUpdated(uint16[] bps);
 
+    /// @notice A slice of a settled race's net pot went into the Revelación pool.
+    event RevelacionContributed(uint256 indexed raceId, uint256 amount, uint256 pool);
+    /// @notice The race winner also took the whole Revelación pool.
+    event RevelacionWon(uint256 indexed raceId, address indexed winner, uint256 amount);
+    event RevelacionUpdated(uint16 bps, uint32 odds);
+
     event RaceRefunded(uint256 indexed raceId, bytes32 reason);
 
     event RaceCancelled(uint256 indexed raceId);
@@ -205,4 +211,9 @@ interface IHorseRaceGame {
     ///         (index 0 = winner). Places past the array length get nothing;
     ///         a house horse on a paid place keeps its share in the bankroll.
     function getPayoutSplitBps() external view returns (uint16[] memory);
+
+    /// @notice The Revelación bonus: `bps` of every net pot accumulates in
+    ///         `pool`; with a 1-in-`odds` chance per settled race (drawn from
+    ///         the race's VRF word) the winning PLAYER also takes the whole pool.
+    function getRevelacion() external view returns (uint256 pool, uint16 bps, uint32 odds);
 }

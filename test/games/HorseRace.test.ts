@@ -1,7 +1,7 @@
 import { describe, it, before } from "node:test";
 import { expect } from "chai";
 import { network } from "hardhat";
-import { encodeFunctionData, keccak256, toHex, pad } from "viem";
+import { encodeFunctionData, encodePacked, keccak256, toHex, pad, parseEther } from "viem";
 
 import { ZERO_ADDRESS, ONE_EVA, TEN_EVA, HUNDRED_EVA, ONE_THOUSAND_EVA, MAX_BPS } from "../helpers/constants.js";
 import { expectRevert } from "../helpers/utils.js";
@@ -126,6 +126,9 @@ async function setup(opts: { bankroll?: bigint; initialOperator?: `0x${string}` 
   await authHub.write.setSpendTracker([game.address, true]);
 
   await game.write.setBetTier([TIER, true]);
+  // The legacy settle expectations assume no Revelación skim; the feature has
+  // its own describe block that turns it back on.
+  await game.write.setRevelacion([0, 0]);
 
   // Fund players + approve the GAME (BaseGame pulls from the player, then the
   // handler pulls from the game).
@@ -1215,5 +1218,146 @@ describe("HorseRaceGame — views", () => {
     // Unknown race → no seats (the dynamic array is only sized at createRace).
     const seats = (await ctx.game.read.getSeats([777n])) as any[];
     expect(seats.length).to.equal(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Revelación bonus pool
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("HorseRaceGame — Revelación", () => {
+  const POT = 4n * NET_PER_SEAT; // k=1: net stake + 3 house top-ups
+  const roll = (word: bigint, raceId: bigint) =>
+    BigInt(keccak256(encodePacked(["uint256", "bytes32", "uint256"], [word, SERVER_SEED, raceId])));
+
+  it("ships with 3 % / 1-in-20 by default and exposes them", async () => {
+    const ctx = await setup();
+    await ctx.game.write.setRevelacion([300, 20]); // setup() turned it off; restore the constructor defaults
+    expect(await ctx.game.read.getRevelacion()).to.deep.equal([0n, 300, 20]);
+    expect(await ctx.game.read.revelacionBps()).to.equal(300);
+    expect(await ctx.game.read.revelacionOdds()).to.equal(20);
+    const fresh = await env.viem.deployContract("HorseRaceGame", [
+      ctx.token.address, ctx.handler.address, ctx.provider.address, ctx.authHub.address, operator, ENGINE_HASH,
+    ]);
+    expect(await fresh.read.getRevelacion()).to.deep.equal([0n, 300, 20]);
+  });
+
+  it("skims the pot into the pool BEFORE the split and keeps the pool as locked exposure", async () => {
+    const ctx = await setup();
+    await ctx.game.write.setRevelacion([300, 0]); // skim, never pay out
+    const { raceId } = await openLockRace(ctx, 1);
+    await fulfillVRF(ctx, raceId);
+    const before = await ctx.token.read.balanceOf([playerA]);
+    const opGame = await gameAs(ctx, 3);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
+    const contrib = (POT * 300n) / 10_000n;
+    const prize = POT - contrib;
+    expect((await ctx.token.read.balanceOf([playerA])) - before).to.equal((prize * 6_000n) / 10_000n);
+    expect(await ctx.game.read.revelacionPool()).to.equal(contrib);
+    expect(await ctx.game.read.lockedExposure()).to.equal(contrib); // reserved, not bankroll
+    expect(await ctx.game.read.availableLiquidity()).to.equal(
+      (await ctx.token.read.balanceOf([ctx.game.address])) - contrib,
+    );
+    const contributed = await ctx.game.getEvents.RevelacionContributed();
+    expect(contributed[0].args.amount).to.equal(contrib);
+    expect(contributed[0].args.pool).to.equal(contrib);
+    const settled = await ctx.game.getEvents.RaceSettled();
+    expect(settled[0].args.prize).to.equal(prize); // what was actually split
+    expect(await ctx.game.getEvents.RevelacionWon()).to.have.length(0);
+  });
+
+  it("pays the whole pool to the winning player when the draw hits (odds = 1), and the reserve is released", async () => {
+    const ctx = await setup();
+    await ctx.game.write.setRevelacion([300, 0]);
+    // race 1 feeds the pool (house wins → nothing paid out)
+    const r1 = await openLockRace(ctx, 1);
+    await fulfillVRF(ctx, r1.raceId);
+    const opGame = await gameAs(ctx, 3);
+    await opGame.write.settleRace([r1.raceId, SERVER_SEED, [3, 0, 1, 2], CARROT_HASH]);
+    const poolAfter1 = await ctx.game.read.revelacionPool();
+    expect(poolAfter1).to.equal((POT * 300n) / 10_000n);
+
+    // race 2: always draws, player wins → place share + the pool (incl. race 2's own skim)
+    await ctx.game.write.setRevelacion([300, 1]);
+    const r2 = await openLockRace(ctx, 1);
+    await fulfillVRF(ctx, r2.raceId);
+    const before = await ctx.token.read.balanceOf([playerA]);
+    await opGame.write.settleRace([r2.raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
+    const contrib2 = (POT * 300n) / 10_000n;
+    const share = ((POT - contrib2) * 6_000n) / 10_000n;
+    const bonus = poolAfter1 + contrib2;
+    expect((await ctx.token.read.balanceOf([playerA])) - before).to.equal(share + bonus);
+    expect(await ctx.game.read.revelacionPool()).to.equal(0n);
+    expect(await ctx.game.read.lockedExposure()).to.equal(0n);
+    const won = await ctx.game.getEvents.RevelacionWon();
+    expect(won).to.have.length(1);
+    expect(won[0].args.winner.toLowerCase()).to.equal(playerA.toLowerCase());
+    expect(won[0].args.amount).to.equal(bonus);
+    // the bet envelope carries the total paid to that bet (indexer sums per bet)
+    const envelopes = await ctx.game.getEvents.BetSettled();
+    expect(envelopes[envelopes.length - 1].args.payout).to.equal(share + bonus);
+    const podium = await ctx.game.getEvents.RacePodium();
+    expect(podium[podium.length - 1].args.payouts[0]).to.equal(share + bonus);
+  });
+
+  it("a house-horse winner never takes the pool, even when the draw hits", async () => {
+    const ctx = await setup();
+    await ctx.game.write.setRevelacion([300, 1]);
+    const { raceId } = await openLockRace(ctx, 1);
+    await fulfillVRF(ctx, raceId);
+    const opGame = await gameAs(ctx, 3);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [2, 0, 1, 3], CARROT_HASH]); // player 2nd
+    expect(await ctx.game.read.revelacionPool()).to.equal((POT * 300n) / 10_000n);
+    expect(await ctx.game.getEvents.RevelacionWon()).to.have.length(0);
+  });
+
+  it("the draw is decided by keccak(vrfWord, serverSeed, raceId) % odds — reproducible off-chain", async () => {
+    const ctx = await setup();
+    await ctx.game.write.setRevelacion([300, 2]); // 1 in 2: pick VRF words on each side of the coin
+    const opGame = await gameAs(ctx, 3);
+    const outcomes: boolean[] = [];
+    for (let word = 1n; outcomes.length < 2 || !outcomes.includes(true) || !outcomes.includes(false); word++) {
+      const { raceId } = await openLockRace(ctx, 1);
+      await fulfillVRF(ctx, raceId, word);
+      const expectHit = roll(word, raceId) % 2n === 0n;
+      const wonBefore = (await ctx.game.getEvents.RevelacionWon()).length;
+      await opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
+      const hit = (await ctx.game.getEvents.RevelacionWon()).length > wonBefore;
+      expect(hit).to.equal(expectHit);
+      outcomes.push(hit);
+      if (word > 12n) throw new Error("no se encontraron ambos resultados en 12 palabras");
+    }
+  });
+
+  it("the pool is not bankroll: a lock that only fits by spending it reverts LiquidityShortfall", async () => {
+    // bankroll 3.3 EVA: after race 1 (player wins, 3 % skimmed) the balance at race 2's lock
+    // is ~2.98 EVA ≥ the 2.91 top-up — but the ~0.116 EVA pool is reserved, so it does not fit.
+    const ctx = await setup({ bankroll: parseEther("3.3") });
+    await ctx.game.write.setRevelacion([300, 0]);
+    const opGame = await gameAs(ctx, 3);
+    const r1 = await openLockRace(ctx, 1);
+    await fulfillVRF(ctx, r1.raceId);
+    await opGame.write.settleRace([r1.raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
+    const pool = await ctx.game.read.revelacionPool();
+    expect(pool > 0n).to.equal(true);
+    const { roomId } = await openLockRace(ctx, 1, { lock: false });
+    const balance = await ctx.token.read.balanceOf([ctx.game.address]);
+    const topUp = 3n * NET_PER_SEAT;
+    expect(balance >= topUp).to.equal(true); // would fit if the pool were spendable…
+    expect(balance - pool < topUp).to.equal(true); // …but it is reserved
+    await expectRevert(opGame.write.lockRace([roomId]), "LiquidityShortfall");
+  });
+
+  it("setRevelacion enforces bounds, is owner-only and emits", async () => {
+    const ctx = await setup();
+    await expectRevert(ctx.game.write.setRevelacion([2_001, 20]), "ConfigOutOfBounds");
+    await expectRevert(ctx.game.write.setRevelacion([300, 10_001]), "ConfigOutOfBounds");
+    const opGame = await gameAs(ctx, 3);
+    await expectRevert(opGame.write.setRevelacion([300, 20]), "Ownable: caller is not the owner");
+    await ctx.game.write.setRevelacion([500, 50]);
+    expect(await ctx.game.read.getRevelacion()).to.deep.equal([0n, 500, 50]);
+    const ev = await ctx.game.getEvents.RevelacionUpdated();
+    expect(ev[ev.length - 1].args.bps).to.equal(500);
+    expect(ev[ev.length - 1].args.odds).to.equal(50);
   });
 });
