@@ -199,7 +199,7 @@ async function main() {
     await waitTx(await token.write.transfer([game.address, bankroll]));
     ok(
       `Bankroll: ${formatEther(bankroll)} EVA (exposure máx/carrera: ${maxBets} apuestas de ` +
-        `${formatEther(maxBet)} EVA en un solo carril ≈ ${formatEther((maxBet * BigInt(maxBets) * 9700n * 14n) / (10000n * 10n))} EVA)`,
+        `${formatEther(maxBet)} EVA en un solo carril ≈ ${formatEther((maxBet * BigInt(maxBets) * 9700n * 24n) / (10000n * 10n))} EVA)`,
     );
   }
 
