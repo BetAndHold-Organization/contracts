@@ -476,6 +476,22 @@ plus the whole Revelación pool when the draw hit that race (`RevelacionWon`).
 `RacePodium(raceId, ranking, payouts)` lists the finishing order and the
 per-lane payouts; `RaceSettled.prize` is the pot that was split (post-skim).
 
+### HorseRaceBook ("bet on a horse" mode)
+
+```
+BetPlaced.data:   abi.decode(data, (uint256 raceId, bytes32 roomId, uint8 lane, uint256 netStake))
+BetSettled.data:  abi.decode(data, (uint256 raceId, uint8 winnerLane, uint8 lane, bytes32 serverSeed, bytes32 carrotDataHash))
+```
+
+Same shapes as HorseRaceGame, one bet per `BetPlaced` (several players may
+bet on the same lane; every horse is a house horse). `BetSettled.payout` =
+`netStake × laneCount × payoutSplitBps[place] / 1e4 × (1e4 − revelacionBps) / 1e4`
+for the finishing `place` of the chosen lane (0 past the paid places), plus the
+bet's pro-rata share of the Revelación pool when the draw hit
+(`RevelacionWon(raceId, winnerLane, amount)` + one `RevelacionShare` per bet).
+`RacePodium(raceId, ranking, laneTotals)` carries the net stake that rode on
+each lane; `RaceSettled(raceId, winnerLane, totalNet, totalPaid, …)`.
+
 ## 11. Where to look next
 
 - `contracts/games/Plinko.sol` — canonical PushVRFGame example.
