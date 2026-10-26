@@ -723,6 +723,19 @@ describe("HorseRaceGame — fulfillRandomness / handleRandomFailure", () => {
 // settleRace
 // ─────────────────────────────────────────────────────────────────────────────
 
+// EDR names NotConfigAdmin() on some calldata shapes and reports only its raw
+// selector (0x66522597) on others — accept either.
+async function expectNotConfigAdmin(promise: Promise<unknown>): Promise<void> {
+  try {
+    await promise;
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    expect(/NotConfigAdmin|66522597/.test(text), `expected NotConfigAdmin, got: ${text}`).to.equal(true);
+    return;
+  }
+  throw new Error("expected NotConfigAdmin revert but call succeeded");
+}
+
 describe("HorseRaceGame — settleRace", () => {
   it("k=1, player wins: pays the full net pot and reveals the seed", async () => {
     const ctx = await setup();
@@ -833,7 +846,7 @@ describe("HorseRaceGame — settleRace", () => {
     await expectRevert(ctx.game.write.setPayoutSplitBps([[0, 0]]), "ConfigOutOfBounds");
     await expectRevert(ctx.game.write.setPayoutSplitBps([[1, 1, 1, 1, 1, 1, 1, 1, 1]]), "ConfigOutOfBounds"); // > MAX_LANES
     const opGame = await gameAs(ctx, 3);
-    await expectRevert(opGame.write.setPayoutSplitBps([[10000]]), "Ownable: caller is not the owner");
+    await expectNotConfigAdmin(opGame.write.setPayoutSplitBps([[10000]]));
 
     await ctx.game.write.setPayoutSplitBps([[10000]]);
     expect(await ctx.game.read.getPayoutSplitBps()).to.deep.equal([10000]);
@@ -1139,12 +1152,12 @@ describe("HorseRaceGame — admin", () => {
   it("setters reject non-owner callers", async () => {
     const ctx = await setup();
     const strangerGame = await gameAs(ctx, 12);
-    await expectRevert(strangerGame.write.setBetTier([TIER, false]), "Ownable: caller is not the owner");
-    await expectRevert(strangerGame.write.setSettleDeadlineSeconds([600]), "Ownable: caller is not the owner");
-    await expectRevert(strangerGame.write.setRefundBps([9000]), "Ownable: caller is not the owner");
-    await expectRevert(strangerGame.write.setEngineConfigHash([ENGINE_HASH]), "Ownable: caller is not the owner");
-    await expectRevert(strangerGame.write.setPlayerBanned([playerA, true]), "Ownable: caller is not the owner");
-    await expectRevert(strangerGame.write.setLanes([6]), "Ownable: caller is not the owner");
+    await expectNotConfigAdmin(strangerGame.write.setBetTier([TIER, false]));
+    await expectNotConfigAdmin(strangerGame.write.setSettleDeadlineSeconds([600]));
+    await expectNotConfigAdmin(strangerGame.write.setRefundBps([9000]));
+    await expectNotConfigAdmin(strangerGame.write.setEngineConfigHash([ENGINE_HASH]));
+    await expectNotConfigAdmin(strangerGame.write.setPlayerBanned([playerA, true]));
+    await expectNotConfigAdmin(strangerGame.write.setLanes([6]));
   });
 
   it("setLanes resizes the field for NEW races; in-flight races keep their snapshot", async () => {
@@ -1353,11 +1366,50 @@ describe("HorseRaceGame — Revelación", () => {
     await expectRevert(ctx.game.write.setRevelacion([2_001, 20]), "ConfigOutOfBounds");
     await expectRevert(ctx.game.write.setRevelacion([300, 10_001]), "ConfigOutOfBounds");
     const opGame = await gameAs(ctx, 3);
-    await expectRevert(opGame.write.setRevelacion([300, 20]), "Ownable: caller is not the owner");
+    await expectNotConfigAdmin(opGame.write.setRevelacion([300, 20]));
     await ctx.game.write.setRevelacion([500, 50]);
     expect(await ctx.game.read.getRevelacion()).to.deep.equal([0n, 500, 50]);
     const ev = await ctx.game.getEvents.RevelacionUpdated();
     expect(ev[ev.length - 1].args.bps).to.equal(500);
     expect(ev[ev.length - 1].args.odds).to.equal(50);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Config admin (day-to-day tuning without the owner's key)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("HorseRaceGame — configAdmin", () => {
+  it("the owner delegates the config setters; the admin can tune but never pause, withdraw or change operators", async () => {
+    const ctx = await setup();
+    const admin = walletClients[12].account.address;
+    const asAdmin = await gameAs(ctx, 12);
+    // before the delegation: a stranger
+    await expectNotConfigAdmin(asAdmin.write.setBetTier([TEN_EVA, true]));
+    await expectRevert(asAdmin.write.setConfigAdmin([admin]), "Ownable: caller is not the owner");
+    await ctx.game.write.setConfigAdmin([admin]);
+    expect((await ctx.game.read.configAdmin()).toLowerCase()).to.equal(admin.toLowerCase());
+    expect(((await ctx.game.getEvents.ConfigAdminUpdated())[0].args.admin as string).toLowerCase()).to.equal(admin.toLowerCase());
+    // every non-custodial setter
+    await asAdmin.write.setBetTier([TEN_EVA, true]);
+    expect(await ctx.game.read.allowedBetAmounts([TEN_EVA])).to.equal(true);
+    await asAdmin.write.setPayoutSplitBps([[5000, 3000, 2000]]);
+    await asAdmin.write.setRevelacion([500, 10]);
+    await asAdmin.write.setLanes([6]);
+    await asAdmin.write.setSettleDeadlineSeconds([120]);
+    await asAdmin.write.setRefundBps([9000]);
+    await asAdmin.write.setEngineConfigHash([keccak256(toHex("v9"))]);
+    await asAdmin.write.setPlayerBanned([playerA, true]);
+    expect(await ctx.game.read.lanes()).to.equal(6);
+    expect(await ctx.game.read.bannedPlayers([playerA])).to.equal(true);
+    // the owner still can
+    await ctx.game.write.setLanes([4]);
+    // custodial / role actions stay with the owner
+    await expectRevert(asAdmin.write.pause(), "Ownable: caller is not the owner");
+    await expectRevert(asAdmin.write.setGameOperator([admin, true]), "Ownable: caller is not the owner");
+    await expectRevert(asAdmin.write.emergencyWithdraw([admin, 0n]), "Ownable: caller is not the owner");
+    // revoke
+    await ctx.game.write.setConfigAdmin([ZERO_ADDRESS]);
+    await expectNotConfigAdmin(asAdmin.write.setBetTier([TEN_EVA, false]));
   });
 });

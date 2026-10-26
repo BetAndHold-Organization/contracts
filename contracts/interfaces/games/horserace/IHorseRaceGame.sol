@@ -136,6 +136,9 @@ interface IHorseRaceGame {
 
     event LanesUpdated(uint8 lanes);
 
+    /// @notice The address (besides the owner) allowed to tune the non-custodial config.
+    event ConfigAdminUpdated(address indexed admin);
+
     // ═══════════════════════════════════════════════════════════════════════
     // OPERATOR LIFECYCLE
     // ═══════════════════════════════════════════════════════════════════════

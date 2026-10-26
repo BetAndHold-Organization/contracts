@@ -93,6 +93,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     error InvalidRanking();
     error SettleDeadlineNotPassed(uint64 settleBy);
     error ConfigOutOfBounds();
+    error NotConfigAdmin();
     // InvalidSignature / ExpiredDeadline / InvalidNonce / NoSessionKey / NotOperator
     // come from the inherited SignedActionAuth mixin; LiquidityShortfall from BaseGame;
     // UnauthorizedCaller from VRFGameBase.
@@ -132,6 +133,18 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
 
     /// @notice Game-level ban list (the PaymentHandler blacklist applies on top).
     mapping(address => bool) public bannedPlayers;
+
+    /// @notice Besides the owner, this address may tune the game's NON-custodial
+    ///         configuration (tiers, split, Revelación, lanes, deadlines, bans,
+    ///         engine hash). It can never pause, withdraw, change the handler or
+    ///         the operators — those stay with the owner. Lets the game team run
+    ///         the game day to day without the platform owner's key.
+    address public configAdmin;
+
+    modifier onlyConfigAdmin() {
+        if (msg.sender != owner() && msg.sender != configAdmin) revert NotConfigAdmin();
+        _;
+    }
 
     /// @notice Share of the net pot per finishing place, in bps (index 0 = winner).
     ///         Must sum to at most MAX_BPS; the remainder (and every share landing
@@ -509,13 +522,19 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     // ADMIN
     // ═══════════════════════════════════════════════════════════════════════
 
-    function setBetTier(uint256 amount, bool allowed) external onlyOwner {
+    /// @notice Owner only: delegate the configuration setters below (zero = owner only).
+    function setConfigAdmin(address admin) external onlyOwner {
+        configAdmin = admin;
+        emit ConfigAdminUpdated(admin);
+    }
+
+    function setBetTier(uint256 amount, bool allowed) external onlyConfigAdmin {
         if (amount == 0) revert ConfigOutOfBounds();
         allowedBetAmounts[amount] = allowed;
         emit BetTierUpdated(amount, allowed);
     }
 
-    function setSettleDeadlineSeconds(uint32 seconds_) external onlyOwner {
+    function setSettleDeadlineSeconds(uint32 seconds_) external onlyConfigAdmin {
         if (seconds_ < MIN_SETTLE_DEADLINE || seconds_ > MAX_SETTLE_DEADLINE) {
             revert ConfigOutOfBounds();
         }
@@ -523,19 +542,19 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         emit SettleDeadlineUpdated(seconds_);
     }
 
-    function setRefundBps(uint16 bps) external onlyOwner {
+    function setRefundBps(uint16 bps) external onlyConfigAdmin {
         if (bps > MAX_BPS) revert ConfigOutOfBounds();
         refundBps = bps;
         emit RefundBpsUpdated(bps);
     }
 
-    function setEngineConfigHash(bytes32 hash) external onlyOwner {
+    function setEngineConfigHash(bytes32 hash) external onlyConfigAdmin {
         if (hash == bytes32(0)) revert ConfigOutOfBounds();
         currentEngineConfigHash = hash;
         emit EngineConfigHashUpdated(hash);
     }
 
-    function setPlayerBanned(address player, bool banned) external onlyOwner {
+    function setPlayerBanned(address player, bool banned) external onlyConfigAdmin {
         bannedPlayers[player] = banned;
         emit PlayerBanStatusUpdated(player, banned);
     }
@@ -543,7 +562,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     /// @notice Set how the net pot is split over the finishing order (index 0 =
     ///         winner), in bps. Must sum to at most MAX_BPS and have at most
     ///         MAX_LANES entries. Applies to every race settled from now on.
-    function setPayoutSplitBps(uint16[] calldata bps) external onlyOwner {
+    function setPayoutSplitBps(uint16[] calldata bps) external onlyConfigAdmin {
         if (bps.length == 0 || bps.length > MAX_LANES) revert ConfigOutOfBounds();
         uint256 total;
         for (uint256 i = 0; i < bps.length; i++) total += bps[i];
@@ -556,7 +575,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     /// @notice Tune the Revelación bonus: `bps` of every net pot feeds the pool
     ///         (0 = stop skimming; the pool keeps whatever it holds) and the
     ///         winner takes it 1 time in `odds` (0 = never pays out).
-    function setRevelacion(uint16 bps, uint32 odds) external onlyOwner {
+    function setRevelacion(uint16 bps, uint32 odds) external onlyConfigAdmin {
         if (bps > MAX_REVELACION_BPS || odds > MAX_REVELACION_ODDS) revert ConfigOutOfBounds();
         revelacionBps = bps;
         revelacionOdds = odds;
@@ -566,7 +585,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     /// @notice Set the number of lanes (players) for NEW races. Races already
     ///         created keep their own `laneCount` (snapshotted at createRace), so
     ///         changing this never affects an in-flight race.
-    function setLanes(uint8 count) external onlyOwner {
+    function setLanes(uint8 count) external onlyConfigAdmin {
         if (count < MIN_LANES || count > MAX_LANES) revert ConfigOutOfBounds();
         lanes = count;
         emit LanesUpdated(count);
