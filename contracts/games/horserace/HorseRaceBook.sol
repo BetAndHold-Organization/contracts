@@ -95,6 +95,7 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     error InvalidRanking();
     error SettleDeadlineNotPassed(uint64 settleBy);
     error ConfigOutOfBounds();
+    error NotConfigAdmin();
 
     // ═══════════════════════════════════════════════════════════════════════
     // STATE
@@ -121,6 +122,17 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     bytes32 public currentEngineConfigHash;
     uint8 public lanes = 4;
     mapping(address => bool) public bannedPlayers;
+
+    /// @notice Besides the owner, this address may tune the book's NON-custodial
+    ///         configuration (odds, bet limits, Revelación, lanes, deadlines,
+    ///         bans, engine hash). It can never pause, withdraw, change the
+    ///         handler or the operators — those stay with the owner.
+    address public configAdmin;
+
+    modifier onlyConfigAdmin() {
+        if (msg.sender != owner() && msg.sender != configAdmin) revert NotConfigAdmin();
+        _;
+    }
 
     /// @notice Current odds per lane (bps over the net stake): 10_000 / winProbability.
     uint32[] private _laneOddsBps;
@@ -489,7 +501,13 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     // ADMIN
     // ═══════════════════════════════════════════════════════════════════════
 
-    function setBetLimits(uint256 minBet_, uint256 maxBet_, uint16 maxBetsPerRace_) external onlyOwner {
+    /// @notice Owner only: delegate the configuration setters below (zero = owner only).
+    function setConfigAdmin(address admin) external onlyOwner {
+        configAdmin = admin;
+        emit ConfigAdminUpdated(admin);
+    }
+
+    function setBetLimits(uint256 minBet_, uint256 maxBet_, uint16 maxBetsPerRace_) external onlyConfigAdmin {
         if (minBet_ == 0 || maxBet_ < minBet_ || maxBetsPerRace_ == 0 || maxBetsPerRace_ > MAX_BETS_CAP) {
             revert ConfigOutOfBounds();
         }
@@ -499,25 +517,25 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         emit BetLimitsUpdated(minBet_, maxBet_, maxBetsPerRace_);
     }
 
-    function setSettleDeadlineSeconds(uint32 seconds_) external onlyOwner {
+    function setSettleDeadlineSeconds(uint32 seconds_) external onlyConfigAdmin {
         if (seconds_ < MIN_SETTLE_DEADLINE || seconds_ > MAX_SETTLE_DEADLINE) revert ConfigOutOfBounds();
         settleDeadlineSeconds = seconds_;
         emit SettleDeadlineUpdated(seconds_);
     }
 
-    function setRefundBps(uint16 bps) external onlyOwner {
+    function setRefundBps(uint16 bps) external onlyConfigAdmin {
         if (bps > MAX_BPS) revert ConfigOutOfBounds();
         refundBps = bps;
         emit RefundBpsUpdated(bps);
     }
 
-    function setEngineConfigHash(bytes32 hash) external onlyOwner {
+    function setEngineConfigHash(bytes32 hash) external onlyConfigAdmin {
         if (hash == bytes32(0)) revert ConfigOutOfBounds();
         currentEngineConfigHash = hash;
         emit EngineConfigHashUpdated(hash);
     }
 
-    function setPlayerBanned(address player, bool banned) external onlyOwner {
+    function setPlayerBanned(address player, bool banned) external onlyConfigAdmin {
         bannedPlayers[player] = banned;
         emit PlayerBanStatusUpdated(player, banned);
     }
@@ -526,7 +544,7 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     ///         for the win probability p_i of that lane under the anchored engine
     ///         config. One entry per lane of `lanes`; applies to races created
     ///         from now on (each race snapshots the odds it was opened with).
-    function setLaneOdds(uint32[] calldata bps) external onlyOwner {
+    function setLaneOdds(uint32[] calldata bps) external onlyConfigAdmin {
         if (bps.length != lanes) revert ConfigOutOfBounds();
         for (uint256 i = 0; i < bps.length; i++) {
             if (bps[i] < MIN_ODDS_BPS || bps[i] > MAX_ODDS_BPS) revert ConfigOutOfBounds();
@@ -536,7 +554,7 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         emit LaneOddsUpdated(bps);
     }
 
-    function setRevelacion(uint16 bps, uint32 odds) external onlyOwner {
+    function setRevelacion(uint16 bps, uint32 odds) external onlyConfigAdmin {
         if (bps > MAX_REVELACION_BPS || odds > MAX_REVELACION_ODDS) revert ConfigOutOfBounds();
         revelacionBps = bps;
         revelacionOdds = odds;
@@ -545,7 +563,7 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
 
     /// @notice Field size for NEW races. The odds table must be set again for
     ///         the new size before a race can be created (createRace checks it).
-    function setLanes(uint8 count) external onlyOwner {
+    function setLanes(uint8 count) external onlyConfigAdmin {
         if (count < MIN_LANES || count > MAX_LANES) revert ConfigOutOfBounds();
         lanes = count;
         emit LanesUpdated(count);

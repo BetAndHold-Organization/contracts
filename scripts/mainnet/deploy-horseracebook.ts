@@ -40,6 +40,7 @@
  * ── Env ─────────────────────────────────────────────────────────────────
  *   CONFIRM_MAINNET=yes                 required
  *   MAINNET_HORSE_OPERATOR              required — the backend's hot wallet (gameOperator)
+ *   MAINNET_HORSE_CONFIG_ADMIN          optional — may tune odds / limits / Revelación / lanes without the owner
  *   MAINNET_HORSE_ENGINE_CONFIG_HASH    default: engine v4
  *   MAINNET_BOOK_MIN_BET / MAINNET_BOOK_MAX_BET   default: 0.1 / 2 (EVA)
  *   MAINNET_BOOK_MAX_BETS               default: 48 (bets per race, ≤ 100)
@@ -374,6 +375,14 @@ async function main() {
   await wait(await game.write.setLanes([BOOK_LANES]));
   await wait(await game.write.setLaneOdds([LANE_ODDS_BPS]));
   ok(`${BOOK_LANES} horses, gross multipliers ${LANE_ODDS_BPS.map((o) => `×${((o / 10_000) * (netStakeBps / 10_000)).toFixed(2)}`).join(" / ")}`);
+
+  const CONFIG_ADMIN = (process.env.MAINNET_HORSE_CONFIG_ADMIN ?? "").trim();
+  if (CONFIG_ADMIN) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(CONFIG_ADMIN)) throw new Error("Invalid MAINNET_HORSE_CONFIG_ADMIN");
+    step(`setConfigAdmin(${CONFIG_ADMIN})`);
+    await wait(await game.write.setConfigAdmin([CONFIG_ADMIN as Addr]));
+    ok("Config admin set (odds / limits / Revelación / lanes without the owner)");
+  }
 
   step(`setSettleDeadlineSeconds(${SETTLE_DEADLINE_SECONDS})`);
   await wait(await game.write.setSettleDeadlineSeconds([SETTLE_DEADLINE_SECONDS]));

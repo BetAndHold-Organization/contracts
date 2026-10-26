@@ -111,6 +111,9 @@ interface IHorseRaceBook {
     event PlayerBanStatusUpdated(address indexed player, bool banned);
     event LanesUpdated(uint8 lanes);
 
+    /// @notice The address (besides the owner) allowed to tune the non-custodial config.
+    event ConfigAdminUpdated(address indexed admin);
+
     // operator lifecycle
     function createRace(bytes32 roomId, bytes32 commitHash) external returns (uint256 raceId);
     function lockRace(bytes32 roomId) external returns (uint256 raceId);

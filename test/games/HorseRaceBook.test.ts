@@ -79,6 +79,19 @@ before(async () => {
   playerD = walletClients[PLAYER_WALLET.D].account.address;
 });
 
+// EDR names NotConfigAdmin() on some calldata shapes and reports only its raw
+// selector (0x66522597) on others — accept either.
+async function expectNotConfigAdmin(promise: Promise<unknown>): Promise<void> {
+  try {
+    await promise;
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    expect(/NotConfigAdmin|66522597/.test(text), `expected NotConfigAdmin, got: ${text}`).to.equal(true);
+    return;
+  }
+  throw new Error("expected NotConfigAdmin revert but call succeeded");
+}
+
 async function nowOnChain(): Promise<bigint> {
   return (await publicClient.getBlock()).timestamp;
 }
@@ -843,10 +856,10 @@ describe("HorseRaceBook — admin", () => {
     await expectRevert(ctx.game.write.setRevelacion([500, 10_001]), "ConfigOutOfBounds");
 
     const stranger = await gameAs(ctx, 12);
-    await expectRevert(stranger.write.setBetLimits([ONE_EVA, ONE_EVA, 1]), "Ownable: caller is not the owner");
-    await expectRevert(stranger.write.setRevelacion([0, 0]), "Ownable: caller is not the owner");
-    await expectRevert(stranger.write.setLaneOdds([ODDS4]), "Ownable: caller is not the owner");
-    await expectRevert(stranger.write.setLanes([4]), "Ownable: caller is not the owner");
+    await expectNotConfigAdmin(stranger.write.setBetLimits([ONE_EVA, ONE_EVA, 1]));
+    await expectNotConfigAdmin(stranger.write.setRevelacion([0, 0]));
+    await expectNotConfigAdmin(stranger.write.setLaneOdds([ODDS4]));
+    await expectNotConfigAdmin(stranger.write.setLanes([4]));
   });
 
   it("quotePayout mirrors the settle maths and returns 0 for an unknown lane", async () => {
@@ -892,5 +905,34 @@ describe("HorseRaceBook — a full book (48 bets)", () => {
     expect(pool).to.equal(0n); // odds 1 → the 12 bets on lane 2 shared it
     expect((await ctx.game.getEvents.RevelacionShare()).length).to.equal(12);
     expect(await ctx.game.read.lockedExposure()).to.equal(0n);
+  });
+});
+
+describe("HorseRaceBook — configAdmin", () => {
+  it("the owner delegates the config setters; the admin can tune but never pause, withdraw or change operators", async () => {
+    const ctx = await setup();
+    const admin = walletClients[12].account.address;
+    const asAdmin = await gameAs(ctx, 12);
+    await expectNotConfigAdmin(asAdmin.write.setLaneOdds([ODDS4]));
+    await expectRevert(asAdmin.write.setConfigAdmin([admin]), "Ownable: caller is not the owner");
+    await ctx.game.write.setConfigAdmin([admin]);
+    expect((await ctx.game.read.configAdmin()).toLowerCase()).to.equal(admin.toLowerCase());
+    expect(((await ctx.game.getEvents.ConfigAdminUpdated())[0].args.admin as string).toLowerCase()).to.equal(admin.toLowerCase());
+    await asAdmin.write.setLanes([6]);
+    await asAdmin.write.setLaneOdds([LADDER6]);
+    await asAdmin.write.setBetLimits([ONE_EVA, TEN_EVA, 10]);
+    await asAdmin.write.setRevelacion([500, 10]);
+    await asAdmin.write.setSettleDeadlineSeconds([120]);
+    await asAdmin.write.setRefundBps([9000]);
+    await asAdmin.write.setEngineConfigHash([keccak256(toHex("v9"))]);
+    await asAdmin.write.setPlayerBanned([walletClients[PLAYER_WALLET.A].account.address, true]);
+    expect(await ctx.game.read.lanes()).to.equal(6);
+    expect(await ctx.game.read.maxBet()).to.equal(TEN_EVA);
+    await ctx.game.write.setLanes([4]); // the owner still can
+    await expectRevert(asAdmin.write.pause(), "Ownable: caller is not the owner");
+    await expectRevert(asAdmin.write.setGameOperator([admin, true]), "Ownable: caller is not the owner");
+    await expectRevert(asAdmin.write.emergencyWithdraw([admin, 0n]), "Ownable: caller is not the owner");
+    await ctx.game.write.setConfigAdmin([ZERO_ADDRESS]);
+    await expectNotConfigAdmin(asAdmin.write.setLanes([6]));
   });
 });
