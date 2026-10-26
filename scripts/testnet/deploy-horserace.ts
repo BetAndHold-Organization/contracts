@@ -21,6 +21,7 @@
  *
  * Env opcionales (además de los de loadTestnetEnv):
  *   HORSE_OPERATOR            — wallet operadora del backend (default: deployer)
+ *   HORSE_CONFIG_ADMIN        — wallet que puede tocar la config (tiers, Revelación…) sin ser owner (default: ninguna)
  *   HORSE_ENGINE_CONFIG_HASH  — hash de engineConfig (default: engine v4)
  *   HORSE_BET_TIERS           — tiers de sala en EVA, separados por coma (default: "0.1,0.2")
  *   HORSE_BANKROLL_EVA        — bankroll en EVA (default: 200)
@@ -199,6 +200,12 @@ async function main() {
   ok(`engineConfigHash ya seteado en el constructor: ${engineConfigHash}`);
   const [revPool, revBps, revOdds] = (await game.read.getRevelacion()) as [bigint, number, number];
   ok(`Revelación: ${revBps / 100} % del pozo al pool, paga 1 de cada ${revOdds} (pool ${revPool} wei)`);
+  const configAdmin = (process.env.HORSE_CONFIG_ADMIN ?? "").trim();
+  if (configAdmin) {
+    step(`setConfigAdmin(${configAdmin})`);
+    await waitTx(await game.write.setConfigAdmin([configAdmin as Addr]));
+    ok("Config admin seteado (tiers / Revelación / split / lanes sin el owner)");
+  }
 
   // ── 4. Funding ───────────────────────────────────────────────────────────
   banner("4. Funding");

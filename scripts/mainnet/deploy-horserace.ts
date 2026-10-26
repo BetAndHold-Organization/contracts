@@ -40,6 +40,7 @@
  * ── Env ─────────────────────────────────────────────────────────────────
  *   CONFIRM_MAINNET=yes                 required
  *   MAINNET_HORSE_OPERATOR              required — the backend's hot wallet (gameOperator)
+ *   MAINNET_HORSE_CONFIG_ADMIN          optional — may tune tiers / split / Revelación / lanes without the owner
  *   MAINNET_HORSE_ENGINE_CONFIG_HASH    default: engine v4
  *   MAINNET_HORSE_BET_TIERS             default: "0.1,0.2" (EVA, comma-separated)
  *   MAINNET_HORSE_HOUSE_BPS / _REFERRAL_BPS / _JACKPOT_BPS   default: 150 / 150 / 0
@@ -370,6 +371,14 @@ async function main() {
     step(`setBetTier(${formatEther(tier)} EVA, true)`);
     await wait(await game.write.setBetTier([tier, true]));
     ok(`Tier ${formatEther(tier)} EVA enabled`);
+  }
+
+  const CONFIG_ADMIN = (process.env.MAINNET_HORSE_CONFIG_ADMIN ?? "").trim();
+  if (CONFIG_ADMIN) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(CONFIG_ADMIN)) throw new Error("Invalid MAINNET_HORSE_CONFIG_ADMIN");
+    step(`setConfigAdmin(${CONFIG_ADMIN})`);
+    await wait(await game.write.setConfigAdmin([CONFIG_ADMIN as Addr]));
+    ok("Config admin set (tiers / split / Revelación / lanes without the owner)");
   }
 
   step(`setSettleDeadlineSeconds(${SETTLE_DEADLINE_SECONDS})`);
