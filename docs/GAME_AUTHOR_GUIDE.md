@@ -483,12 +483,13 @@ BetPlaced.data:   abi.decode(data, (uint256 raceId, bytes32 roomId, uint8 lane, 
 BetSettled.data:  abi.decode(data, (uint256 raceId, uint8 winnerLane, uint8 lane, bytes32 serverSeed, bytes32 carrotDataHash))
 ```
 
-Same shapes as HorseRaceGame, one bet per `BetPlaced` (several players may
-bet on the same lane; every horse is a house horse). `BetSettled.payout` =
-`netStake × laneCount × payoutSplitBps[place] / 1e4 × (1e4 − revelacionBps) / 1e4`
-for the finishing `place` of the chosen lane (0 past the paid places), plus the
-bet's pro-rata share of the Revelación pool when the draw hit
-(`RevelacionWon(raceId, winnerLane, amount)` + one `RevelacionShare` per bet).
+Same shapes as HorseRaceGame, one bet per `BetPlaced` (a player may place
+several; every horse is a house horse, each with its own win probability under
+the anchored engine config). Fixed odds, win only: `BetSettled.payout` =
+`netStake × laneOddsBps[lane] / 1e4 × (1e4 − revelacionBps) / 1e4` when the
+lane won (`getRaceOdds(raceId)` is the table the race opened with), 0
+otherwise, plus the bet's pro-rata share of the Revelación pool when the draw
+hit (`RevelacionWon(raceId, winnerLane, amount)` + one `RevelacionShare` per bet).
 `RacePodium(raceId, ranking, laneTotals)` carries the net stake that rode on
 each lane; `RaceSettled(raceId, winnerLane, totalNet, totalPaid, …)`.
 

@@ -6,7 +6,7 @@
  *   2. randomProvider.setConsumerStatus(game, true, 1)
  *   3. paymentHandler.registerGame(game, game, feeRecipient, house, referral, jackpot)
  *   4. authHub.setSpendTracker(game, true)  +  authHub.setOperator(operator, true)
- *   5. setBetLimits(minBet, maxBet, maxBetsPerRace)  (+ setSettleDeadlineSeconds)
+ *   5. setBetLimits(minBet, maxBet, maxBetsPerRace), setLanes(6), setLaneOdds(calibrated)  (+ setSettleDeadlineSeconds)
  *   6. optional bankroll transfer
  *
  *   CONFIRM_MAINNET=yes MAINNET_HORSE_OPERATOR=0x... \
@@ -20,10 +20,10 @@
  *
  * ── Soft launch defaults ────────────────────────────────────────────────
  * Bet limits default to 0.1 – 2 EVA (0.1 EVA is the platform minimum bet) and
- * 48 bets per race. The worst bankroll outflow per race is every bet at the
- * max on one lane: 48 × 2 × 0.97 × 2.4 ≈ 224 EVA — size the bankroll (or lower
- * the limits with setBetLimits) accordingly; lockRace reverts with
- * LiquidityShortfall when the bankroll cannot cover a race.
+ * 48 bets per race. Fixed odds, win only: the contract refuses any bet the
+ * bankroll could not pay if that horse won (BetExceedsLiquidity), so the
+ * bankroll bounds the action: one 2 EVA bet on the ×14.4 long shot needs
+ * ≈ 27 EVA free. Start with a few hundred EVA.
  *
  * ── Fee split ───────────────────────────────────────────────────────────
  * Defaults to 1.5 % house / 1.5 % referral / 0 % jackpot — the split the engine
@@ -122,8 +122,15 @@ const FEE_RECIPIENT = addressWithDefault(
 // code: engineConfigHash(ENGINE_CONFIG_V1) in horseBackend/backend/src/engine/engineConfig.ts.
 // The frontend verifier recomputes this hash — a different value makes every
 // race fail provably-fair verification.
+// Engine config v5 of the Book (horseBackend ENGINE_CONFIG_BOOK: 6 horses with
+// different speeds). The odds below come from 1M simulated races on THAT
+// config (backend scripts/calibrateBook.ts, 2026-10-26): odds_i = 1e4 / p_i,
+// so every bet's expected payout is its net stake and the house edge is
+// exactly the platform fees. Changing the config means recalibrating.
 const DEFAULT_ENGINE_CONFIG_HASH: Hash32 =
-  "0x8043770ebc7ab1e5aace82d064c4d20ad15dbf05d2b01a8e9738997cd04805b7";
+  "0x518a35337769864c5c286ccc7e63351c3231be36da773a42125f646533b26f76";
+const BOOK_LANES = 6;
+const LANE_ODDS_BPS = [24705, 50904, 74179, 92833, 112497, 148460];
 
 const HOUSE_BPS = bpsWithDefault("MAINNET_HORSE_HOUSE_BPS", 150);
 const REFERRAL_BPS = bpsWithDefault("MAINNET_HORSE_REFERRAL_BPS", 150);
@@ -223,8 +230,8 @@ async function main() {
   );
   console.log("Settle deadline:  ", `${SETTLE_DEADLINE_SECONDS} s`);
   console.log(
-    "Max exposure/race:",
-    `${formatEther((MAX_BET * BigInt(MAX_BETS) * BigInt(netStakeBps) * 24n) / (10000n * 10n))} EVA (every bet at the max on one lane, 2.4×)`,
+    "Liability/max bet:",
+    `${formatEther((MAX_BET * BigInt(netStakeBps) * BigInt(LANE_ODDS_BPS[LANE_ODDS_BPS.length - 1])) / (10000n * 10000n))} EVA free needed for one max bet on the long shot`,
   );
   console.log("Bankroll:         ", BANKROLL === "0" ? "SKIPPED (fund manually after deploy)" : `${BANKROLL} EVA`);
 
@@ -304,7 +311,8 @@ async function main() {
       maxBetEva: formatEther(MAX_BET),
       maxBetsPerRace: MAX_BETS,
       settleDeadlineSeconds: SETTLE_DEADLINE_SECONDS,
-      lanes: 4,
+      lanes: BOOK_LANES,
+      laneOddsBps: LANE_ODDS_BPS,
     },
     wiring: "in progress",
   };
@@ -361,6 +369,11 @@ async function main() {
   step(`setBetLimits(${formatEther(MIN_BET)} EVA, ${formatEther(MAX_BET)} EVA, ${MAX_BETS})`);
   await wait(await game.write.setBetLimits([MIN_BET, MAX_BET, MAX_BETS]));
   ok("Bet limits set");
+
+  step(`setLanes(${BOOK_LANES}) + setLaneOdds(${LANE_ODDS_BPS.join(", ")})`);
+  await wait(await game.write.setLanes([BOOK_LANES]));
+  await wait(await game.write.setLaneOdds([LANE_ODDS_BPS]));
+  ok(`${BOOK_LANES} horses, gross multipliers ${LANE_ODDS_BPS.map((o) => `×${((o / 10_000) * (netStakeBps / 10_000)).toFixed(2)}`).join(" / ")}`);
 
   step(`setSettleDeadlineSeconds(${SETTLE_DEADLINE_SECONDS})`);
   await wait(await game.write.setSettleDeadlineSeconds([SETTLE_DEADLINE_SECONDS]));

@@ -10,9 +10,11 @@ import { expectRevert } from "../helpers/utils.js";
 /**
  * HorseRaceBook tests — the "bet on a horse" mode.
  *
- * Every lane is a house horse; players pick a lane and a free amount. A bet
- * pays netStake × laneCount × split[place] (2.4× / 1.2× / 0.4× of the net with
- * 4 lanes and 60/30/10), minus the Revelación skim.
+ * Every lane is a house horse with its own win probability; players pick a
+ * lane and a free amount, as many bets as they like. Fixed odds, win only: a
+ * bet pays netStake × laneOddsBps[lane] / 1e4 when its horse wins (minus the
+ * Revelación skim), nothing otherwise. Tests use 4 symmetric lanes at ×4 net
+ * (p = 25 %) unless they set the 6-horse ladder.
  */
 
 let env: Awaited<ReturnType<typeof network.connect>>;
@@ -47,10 +49,13 @@ const LANES = 4;
 const SENTINEL = 255;
 const ST = { None: 0, Open: 1, Locked: 2, Settled: 3, Refunded: 4, Cancelled: 5 } as const;
 
-/** mult[place] × (1 − revBps) over the net stake, mirroring the contract's integer maths. */
-function payout(netStake: bigint, place: number, split = [6000n, 3000n, 1000n], revBps = 300n, lanes = 4n): bigint {
-  if (place >= split.length) return 0n;
-  return (netStake * lanes * split[place] * (MAX_BPS - revBps)) / (MAX_BPS * MAX_BPS);
+/** Symmetric 4-lane odds: p = 25 % each → ×4 the net stake. */
+const ODDS4 = [40_000, 40_000, 40_000, 40_000];
+/** The real 6-horse ladder (calibrateBook.ts 2026-10-26): 10_000 / p_i. */
+const LADDER6 = [24_705, 50_904, 74_179, 92_833, 112_497, 148_460];
+/** netStake × odds × (1 − revBps), mirroring the contract's integer maths. */
+function payout(netStake: bigint, oddsBps: number, revBps = 300n): bigint {
+  return (netStake * BigInt(oddsBps) * (MAX_BPS - revBps)) / (MAX_BPS * MAX_BPS);
 }
 
 let roomCounter = 1000;
@@ -107,6 +112,7 @@ async function setup(opts: { bankroll?: bigint; revelacion?: [number, number] } 
   await authHub.write.setOperator([operator, true]);
   await authHub.write.setSpendTracker([game.address, true]);
   if (opts.revelacion) await game.write.setRevelacion(opts.revelacion);
+  await game.write.setLaneOdds([ODDS4]);
 
   for (const idx of Object.values(PLAYER_WALLET)) {
     const addr = walletClients[idx].account.address;
@@ -196,9 +202,9 @@ function roll(word: bigint, raceId: bigint): bigint {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("HorseRaceBook — construction", () => {
-  it("ships with 60/30/10, Revelación 3 % 1-in-20, limits 0.1–2 EVA × 48 bets, 4 lanes", async () => {
+  it("ships with no odds (set per deployment), Revelación 3 % 1-in-20, limits 0.1–2 EVA × 48 bets, 4 lanes", async () => {
     const ctx = await setup();
-    expect(await ctx.game.read.getPayoutSplitBps()).to.deep.equal([6000, 3000, 1000]);
+    expect(await ctx.game.read.getLaneOdds()).to.deep.equal(ODDS4);
     const [pool, bps, odds] = (await ctx.game.read.getRevelacion()) as [bigint, number, number];
     expect([pool, bps, odds]).to.deep.equal([0n, 300, 20]);
     const [min, max, cap] = (await ctx.game.read.getBetLimits()) as [bigint, bigint, number];
@@ -229,11 +235,19 @@ describe("HorseRaceBook — createRace", () => {
     expect(race.roomId).to.equal(roomId);
     const ev = await ctx.game.getEvents.RaceCreated();
     expect(ev[0].args.raceId).to.equal(raceId);
-    // a later setLanes does not touch it
+    // the odds are snapshotted: a later change does not touch an open race
+    expect(await ctx.game.read.getRaceOdds([raceId])).to.deep.equal(ODDS4);
+    await ctx.game.write.setLaneOdds([[20_000, 30_000, 60_000, 120_000]]);
+    expect(await ctx.game.read.getRaceOdds([raceId])).to.deep.equal(ODDS4);
+    // a later setLanes does not touch it either — and the next race needs odds for the new size
     await ctx.game.write.setLanes([6]);
     expect(((await ctx.game.read.getRace([raceId])) as any).laneCount).to.equal(LANES);
+    const opGame = await gameAs(ctx, 3);
+    await expectRevert(opGame.write.createRace([freshRoom(), COMMIT]), "OddsNotConfigured");
+    await ctx.game.write.setLaneOdds([LADDER6]);
     const next = await openRace(ctx, [], { lock: false });
     expect(((await ctx.game.read.getRace([next.raceId])) as any).laneCount).to.equal(6);
+    expect(await ctx.game.read.getRaceOdds([next.raceId])).to.deep.equal(LADDER6);
   });
 
   it("rejects a zero commit, a reused room, a non-operator and a paused game", async () => {
@@ -269,7 +283,6 @@ describe("HorseRaceBook — placeBet (direct)", () => {
     expect(bets[0].grossStake).to.equal(ONE_EVA);
     expect(bets[0].netStake).to.equal(net(ONE_EVA));
     expect(await ctx.game.read.getLaneTotals([raceId])).to.deep.equal([0n, 0n, net(ONE_EVA), 0n]);
-    expect(await ctx.game.read.hasBet([raceId, playerA])).to.equal(true);
 
     const placed = await ctx.game.getEvents.LaneBetPlaced();
     expect(placed[0].args.lane).to.equal(2);
@@ -280,7 +293,7 @@ describe("HorseRaceBook — placeBet (direct)", () => {
     void roomId;
   });
 
-  it("enforces the bet limits, the lane range, one bet per player, the cap, bans and the race state", async () => {
+  it("enforces the bet limits, the lane range, the cap, bans and the race state; a player may bet several times", async () => {
     const ctx = await setup();
     const { roomId } = await openRace(ctx, [], { lock: false });
     const a = await gameAs(ctx, PLAYER_WALLET.A);
@@ -289,14 +302,18 @@ describe("HorseRaceBook — placeBet (direct)", () => {
     await expectRevert(a.write.placeBet([roomId, 4, ONE_EVA, ZERO_ADDRESS]), "InvalidLane");
     await expectRevert(a.write.placeBet([freshRoom(), 0, ONE_EVA, ZERO_ADDRESS]), "RaceNotFound");
     await a.write.placeBet([roomId, 0, ONE_EVA, ZERO_ADDRESS]);
-    await expectRevert(a.write.placeBet([roomId, 1, ONE_EVA, ZERO_ADDRESS]), "AlreadyBet");
+    await a.write.placeBet([roomId, 1, ONE_EVA, ZERO_ADDRESS]); // another lane
+    await a.write.placeBet([roomId, 1, ONE_EVA, ZERO_ADDRESS]); // same lane again
+    const raceId = (await ctx.game.read.getRaceIdByRoom([roomId])) as bigint;
+    expect(((await ctx.game.read.getRace([raceId])) as any).betCount).to.equal(3);
+    expect(await ctx.game.read.getLaneTotals([raceId])).to.deep.equal([net(ONE_EVA), 2n * net(ONE_EVA), 0n, 0n]);
 
     await ctx.game.write.setPlayerBanned([playerB, true]);
     const b = await gameAs(ctx, PLAYER_WALLET.B);
     await expectRevert(b.write.placeBet([roomId, 0, ONE_EVA, ZERO_ADDRESS]), "PlayerIsBanned");
     await ctx.game.write.setPlayerBanned([playerB, false]);
 
-    await ctx.game.write.setBetLimits([parseEther("0.1"), parseEther("2"), 1]); // cap already reached
+    await ctx.game.write.setBetLimits([parseEther("0.1"), parseEther("2"), 3]); // cap already reached
     await expectRevert(b.write.placeBet([roomId, 0, ONE_EVA, ZERO_ADDRESS]), "RaceFull");
     await ctx.game.write.setBetLimits([parseEther("0.1"), parseEther("2"), 48]);
 
@@ -365,12 +382,12 @@ describe("HorseRaceBook — lockRace", () => {
     expect(await ctx.game.read.lockedExposure()).to.equal(0n);
   });
 
-  it("locks the worst-case payout premium (largest lane total on the largest multiplier) and requests VRF", async () => {
+  it("locks the most expensive winner (max lane total × its odds) minus what was collected, and requests VRF", async () => {
     const ctx = await setup();
-    // A 1 EVA on lane 0, B 2 EVA on lane 1 → totals 0.97 / 1.94 → worst = 1.94×2.4 + 0.97×1.2 = 5.82
+    // A 1 EVA on lane 0, B 2 EVA on lane 1 (×4 net each) → worst = 1.94 × 4 = 7.76; collected 2.91
     const { raceId } = await openRace(ctx, [{ key: "A", lane: 0, amount: ONE_EVA }, { key: "B", lane: 1, amount: 2n * ONE_EVA }]);
     const totalNet = net(ONE_EVA) + net(2n * ONE_EVA);
-    const worst = (net(2n * ONE_EVA) * 4n * 6000n) / MAX_BPS + (net(ONE_EVA) * 4n * 3000n) / MAX_BPS;
+    const worst = (net(2n * ONE_EVA) * 40_000n) / MAX_BPS;
     const race = (await ctx.game.read.getRace([raceId])) as any;
     expect(race.state).to.equal(ST.Locked);
     expect(race.exposureLocked).to.equal(worst - totalNet);
@@ -387,17 +404,39 @@ describe("HorseRaceBook — lockRace", () => {
 
   it("when the refund premium exceeds the payout premium it is the one locked", async () => {
     const ctx = await setup();
-    await ctx.game.write.setPayoutSplitBps([[1000]]); // winner pays 0.4× the net: never more than collected
+    await ctx.game.write.setLaneOdds([[10_000, 10_000, 10_000, 10_000]]); // ×1 the net: never more than collected
     const { raceId } = await openRace(ctx, [{ key: "A", lane: 0, amount: ONE_EVA }]);
     const race = (await ctx.game.read.getRace([raceId])) as any;
     expect(race.exposureLocked).to.equal(ONE_EVA - net(ONE_EVA)); // gross refund − net held
   });
 
-  it("reverts with LiquidityShortfall when the bankroll cannot cover the exposure", async () => {
-    const ctx = await setup({ bankroll: 0n });
-    const { roomId } = await openRace(ctx, [{ key: "A", lane: 0, amount: ONE_EVA }], { lock: false });
+  it("a bet the bankroll could not pay is refused at placeBet (BetExceedsLiquidity), so lockRace never finds a shortfall", async () => {
+    // bankroll 2 EVA. A 1 EVA bet at ×4 net: worst 3.88, collected 0.97 → needs 2.91 of the
+    // 2.97 balance → fits (exactly what lockRace will lock).
+    const ctx = await setup({ bankroll: 2n * ONE_EVA });
+    const { roomId } = await openRace(ctx, [], { lock: false });
+    const a = await gameAs(ctx, PLAYER_WALLET.A);
+    await a.write.placeBet([roomId, 0, ONE_EVA, ZERO_ADDRESS]);
+    // a second 1 EVA on the SAME lane: worst 7.76, collected 1.94 → needs 5.82 of 3.94 → refused
+    await expectRevert(a.write.placeBet([roomId, 0, ONE_EVA, ZERO_ADDRESS]), "BetExceedsLiquidity");
+    // …but on ANOTHER lane the worst case stays 3.88 (now beyond 1.94 collected): needs 1.94 of 3.94 → fits
+    await a.write.placeBet([roomId, 1, ONE_EVA, ZERO_ADDRESS]);
     const opGame = await gameAs(ctx, 3);
-    await expectRevert(opGame.write.lockRace([roomId]), "LiquidityShortfall");
+    await opGame.write.lockRace([roomId]);
+    expect(await ctx.game.read.lockedExposure()).to.equal((net(ONE_EVA) * 40_000n) / MAX_BPS - 2n * net(ONE_EVA));
+  });
+
+  it("the liquidity check counts what other races / the Revelación pool already locked", async () => {
+    const ctx = await setup({ bankroll: 4n * ONE_EVA });
+    // race 1 locks 2.91 of exposure (1 EVA at ×4): balance 4.97, locked 2.91
+    await openRace(ctx, [{ key: "A", lane: 0, amount: ONE_EVA }]);
+    expect(await ctx.game.read.lockedExposure()).to.equal((net(ONE_EVA) * 40_000n) / MAX_BPS - net(ONE_EVA));
+    // race 2, a 2 EVA bet: worst 7.76, collected 1.94 → needs 5.82; available = 6.91 − 2.91 = 4.00 → refused
+    // (alone it would have fit: 5.94 ≥ 5.82)
+    const { roomId } = await openRace(ctx, [], { lock: false });
+    const b = await gameAs(ctx, PLAYER_WALLET.B);
+    await expectRevert(b.write.placeBet([roomId, 0, 2n * ONE_EVA, ZERO_ADDRESS]), "BetExceedsLiquidity");
+    await b.write.placeBet([roomId, 0, ONE_EVA, ZERO_ADDRESS]); // needs 2.91 of 3.03 → fits
   });
 
   it("rejects an unknown room, a non-Open race and a non-operator", async () => {
@@ -458,7 +497,7 @@ describe("HorseRaceBook — VRF callbacks", () => {
 });
 
 describe("HorseRaceBook — settleRace", () => {
-  it("pays 2.4× / 1.2× / 0.4× of the net (minus the 3 % skim) by finishing place, 4th pays 0, and feeds the pool", async () => {
+  it("pays only the bets on the winning lane, at that lane's odds (minus the 3 % skim); 2nd/3rd/4th get 0; feeds the pool", async () => {
     const ctx = await setup();
     const bets: BetSpec[] = [
       { key: "A", lane: 0, amount: ONE_EVA },
@@ -473,12 +512,7 @@ describe("HorseRaceBook — settleRace", () => {
     await opGame.write.settleRace([raceId, SERVER_SEED, ranking, CARROT_HASH]);
 
     const after = await Promise.all([playerA, playerB, playerC, playerD].map((p) => ctx.token.read.balanceOf([p])));
-    const exp = [
-      payout(net(ONE_EVA), 1),
-      payout(net(2n * ONE_EVA), 0),
-      payout(net(parseEther("0.5")), 2),
-      0n,
-    ];
+    const exp = [0n, payout(net(2n * ONE_EVA), 40_000), 0n, 0n];
     bets.forEach((b, i) => expect(after[i] - before[i]).to.equal(exp[i] - b.amount));
 
     const totalNet = bets.reduce((s, b) => s + net(b.amount), 0n);
@@ -514,27 +548,46 @@ describe("HorseRaceBook — settleRace", () => {
     expect((await ctx.game.getEvents.RaceSettled())[0].args.totalPaid).to.equal(0n);
   });
 
-  it("with no Revelación (bps 0) the multipliers pay in full and nothing is skimmed", async () => {
+  it("with no Revelación (bps 0) the odds pay in full and nothing is skimmed", async () => {
     const ctx = await setup({ revelacion: [0, 0] });
     const before = await ctx.token.read.balanceOf([playerA]);
     const { raceId, opGame } = await openRace(ctx, [{ key: "A", lane: 0, amount: ONE_EVA }]);
     await fulfillVRF(ctx, raceId);
     await opGame.write.settleRace([raceId, SERVER_SEED, [0, 1, 2, 3], CARROT_HASH]);
-    expect((await ctx.token.read.balanceOf([playerA])) - before).to.equal(payout(net(ONE_EVA), 0, undefined, 0n) - ONE_EVA);
+    expect((await ctx.token.read.balanceOf([playerA])) - before).to.equal(4n * net(ONE_EVA) - ONE_EVA);
     expect(await ctx.game.read.lockedExposure()).to.equal(0n);
     expect((await ctx.game.getEvents.RevelacionContributed()).length).to.equal(0);
   });
 
-  it("a winner-takes-all split pays 4× the net to the winning lane only", async () => {
+  it("the 6-horse ladder: each lane pays its own odds, several bets of one player are paid one by one, and the odds the race opened with are honoured", async () => {
     const ctx = await setup({ revelacion: [0, 0] });
-    await ctx.game.write.setPayoutSplitBps([[10_000]]);
+    await ctx.game.write.setLanes([6]);
+    await ctx.game.write.setLaneOdds([LADDER6]);
+    await ctx.game.write.setBetLimits([parseEther("0.1"), parseEther("20"), 48]);
     const before = await ctx.token.read.balanceOf([playerA]);
-    const { raceId, opGame } = await openRace(ctx, [{ key: "A", lane: 2, amount: ONE_EVA }, { key: "B", lane: 1, amount: ONE_EVA }]);
+    const { raceId, roomId, opGame } = await openRace(ctx, [{ key: "A", lane: 5, amount: ONE_EVA }, { key: "A", lane: 5, amount: parseEther("0.5") }, { key: "A", lane: 0, amount: ONE_EVA }], { lock: false });
+    // the long shot (lane 6, ×14.97 net) wins: both bets on it are paid, the favourite's bet is lost
+    await ctx.game.write.setLaneOdds([[10_000, 10_000, 10_000, 10_000, 10_000, 10_000]]); // changed AFTER opening: irrelevant for this race
+    await opGame.write.lockRace([roomId]);
     await fulfillVRF(ctx, raceId);
-    await opGame.write.settleRace([raceId, SERVER_SEED, [2, 1, 0, 3], CARROT_HASH]);
-    expect((await ctx.token.read.balanceOf([playerA])) - before).to.equal(4n * net(ONE_EVA) - ONE_EVA);
+    await opGame.write.settleRace([raceId, SERVER_SEED, [5, 0, 1, 2, 3, 4], CARROT_HASH]);
+    const paid = (net(ONE_EVA) * 148_460n) / MAX_BPS + (net(parseEther("0.5")) * 148_460n) / MAX_BPS;
+    expect((await ctx.token.read.balanceOf([playerA])) - before).to.equal(paid - ONE_EVA - parseEther("0.5") - ONE_EVA);
     const settled = await ctx.game.getEvents.BetSettled();
-    expect(settled[1].args.payout).to.equal(0n); // B second: no place paid
+    expect(settled.map((e: any) => e.args.payout)).to.deep.equal([(net(ONE_EVA) * 148_460n) / MAX_BPS, (net(parseEther("0.5")) * 148_460n) / MAX_BPS, 0n]);
+    // quotePayout follows the CURRENT table
+    expect(await ctx.game.read.quotePayout([2, net(ONE_EVA)])).to.equal(net(ONE_EVA));
+  });
+
+  it("the house edge is exactly the platform fees for every lane of the ladder: p_i × odds_i × net = gross", async () => {
+    // With odds_i = 1e4 / p_i the expected payout of a bet equals its net stake,
+    // so the house keeps the 3 % fee whatever the bet distribution.
+    const p = [0.4048, 0.1964, 0.1348, 0.1077, 0.0889, 0.0674]; // calibrateBook.ts (1M races)
+    for (let i = 0; i < 6; i++) {
+      const ev = p[i] * (LADDER6[i] / 10_000) * 0.97; // expected gross return per 1 EVA bet
+      expect(ev).to.be.greaterThan(0.965);
+      expect(ev).to.be.lessThan(0.975);
+    }
   });
 
   it("rejects a non-Locked race, an unfulfilled VRF, a wrong seed, a bad ranking and a non-operator", async () => {
@@ -582,9 +635,9 @@ describe("HorseRaceBook — Revelación draw", () => {
     const shareA = (pool * net(ONE_EVA)) / winnerNet;
     const shareB = pool - shareA; // dust goes to the last winning bet
     const after = await Promise.all([playerA, playerB, playerC].map((p) => ctx.token.read.balanceOf([p])));
-    expect(after[0] - before[0]).to.equal(payout(net(ONE_EVA), 0) + shareA - ONE_EVA);
-    expect(after[1] - before[1]).to.equal(payout(net(2n * ONE_EVA), 0) + shareB - 2n * ONE_EVA);
-    expect(after[2] - before[2]).to.equal(payout(net(ONE_EVA), 1) - ONE_EVA);
+    expect(after[0] - before[0]).to.equal(payout(net(ONE_EVA), 40_000) + shareA - ONE_EVA);
+    expect(after[1] - before[1]).to.equal(payout(net(2n * ONE_EVA), 40_000) + shareB - 2n * ONE_EVA);
+    expect(after[2] - before[2]).to.equal(0n - ONE_EVA); // lane 1 lost
 
     const [poolAfter] = (await ctx.game.read.getRevelacion()) as [bigint, number, number];
     expect(poolAfter).to.equal(0n);
@@ -597,7 +650,7 @@ describe("HorseRaceBook — Revelación draw", () => {
     expect(shares.map((s: any) => s.args.amount)).to.deep.equal([shareA, shareB]);
     // the envelope payout includes the share
     const settled = await ctx.game.getEvents.BetSettled();
-    expect(settled[0].args.payout).to.equal(payout(net(ONE_EVA), 0) + shareA);
+    expect(settled[0].args.payout).to.equal(payout(net(ONE_EVA), 40_000) + shareA);
   });
 
   it("the roll comes from keccak(vrfWord, serverSeed, raceId): a losing word keeps the pool, a winning word pays it", async () => {
@@ -637,23 +690,22 @@ describe("HorseRaceBook — Revelación draw", () => {
     expect(await ctx.game.read.lockedExposure()).to.equal(pool);
   });
 
-  it("the pool is reserved: a lock that needs it reverts with LiquidityShortfall", async () => {
-    const ctx = await setup({ bankroll: parseEther("1.5"), revelacion: [2000, 0] });
-    // one bet of 1 EVA on a lane: exposure 2.328−0.97 = 1.358 ≤ 1.5+0.97 bankroll+net ✓
+  it("the pool is reserved: a bet that would need it is refused (BetExceedsLiquidity)", async () => {
+    const ctx = await setup({ bankroll: 2n * ONE_EVA, revelacion: [2000, 0] });
+    // one bet of 1 EVA at ×4 net: needs 2.91 of the 2.97 balance ✓
     const a = await openRace(ctx, [{ key: "A", lane: 0, amount: ONE_EVA }]);
     await fulfillVRF(ctx, a.raceId);
     await a.opGame.write.settleRace([a.raceId, SERVER_SEED, [3, 2, 1, 0], CARROT_HASH]); // house keeps 0.97, pool +0.194
     // balance now 1.5 + 0.97 = 2.47, pool 0.194 locked. A 2 EVA bet needs 2.328×2−1.94 = 2.716 > 2.47+1.94−0.194? no → fits.
     // Make it tight: three 2 EVA bets on one lane → exposure 5.82×... just assert the pool counts.
     await ctx.game.write.setBetLimits([parseEther("0.1"), parseEther("20"), 48]);
-    const need = await openRace(ctx, [{ key: "B", lane: 0, amount: parseEther("4") }], { lock: false });
-    // worst 4×0.97×2.4 = 9.312, net 3.88 → premium 5.432; balance 2.47+3.88 = 6.35; locked pool 0.194 → 6.35 < 5.432+0.194? no (6.35 ≥ 5.626) → fits
-    await need.opGame.write.lockRace([need.roomId]);
-    const tight = await openRace(ctx, [{ key: "C", lane: 0, amount: parseEther("1") }], { lock: false });
-    // balance 6.35+0.97 = 7.32; locked 5.626; this needs 1.358 → 6.984 ≤ 7.32 fits; with 0.5 more it would not
-    await tight.opGame.write.lockRace([tight.roomId]);
-    const over = await openRace(ctx, [{ key: "D", lane: 0, amount: parseEther("1") }], { lock: false });
-    await expectRevert(over.opGame.write.lockRace([over.roomId]), "LiquidityShortfall");
+    // balance 2 + 0.97 = 2.97, pool 0.194 locked. A 1.5 EVA bet at ×4 net: worst 5.82, collected
+    // 1.455 → needs 4.365; available = (2.97 + 1.455) − 0.194 = 4.231 → refused — without the
+    // reserved pool (4.425) it would have fit.
+    const { roomId } = await openRace(ctx, [], { lock: false });
+    const b = await gameAs(ctx, PLAYER_WALLET.B);
+    await expectRevert(b.write.placeBet([roomId, 0, parseEther("1.5"), ZERO_ADDRESS]), "BetExceedsLiquidity");
+    await b.write.placeBet([roomId, 0, parseEther("1.4"), ZERO_ADDRESS]); // needs 4.074 of 4.134 → fits
   });
 });
 
@@ -775,14 +827,14 @@ describe("HorseRaceBook — admin", () => {
     expect(await ctx.game.read.bannedPlayers([playerA])).to.equal(true);
   });
 
-  it("setPayoutSplitBps / setRevelacion validate and emit; everything is onlyOwner", async () => {
+  it("setLaneOdds / setRevelacion validate and emit; everything is onlyOwner", async () => {
     const ctx = await setup();
-    await ctx.game.write.setPayoutSplitBps([[5000, 3000, 2000]]);
-    expect(await ctx.game.read.getPayoutSplitBps()).to.deep.equal([5000, 3000, 2000]);
-    await expectRevert(ctx.game.write.setPayoutSplitBps([[]]), "ConfigOutOfBounds");
-    await expectRevert(ctx.game.write.setPayoutSplitBps([[1, 1, 1, 1, 1, 1, 1, 1, 1]]), "ConfigOutOfBounds");
-    await expectRevert(ctx.game.write.setPayoutSplitBps([[0, 0]]), "ConfigOutOfBounds");
-    await expectRevert(ctx.game.write.setPayoutSplitBps([[6000, 5000]]), "ConfigOutOfBounds");
+    await ctx.game.write.setLaneOdds([[20_000, 30_000, 60_000, 120_000]]);
+    expect(await ctx.game.read.getLaneOdds()).to.deep.equal([20_000, 30_000, 60_000, 120_000]);
+    expect((await ctx.game.getEvents.LaneOddsUpdated())[0].args.bps).to.deep.equal([20_000, 30_000, 60_000, 120_000]);
+    await expectRevert(ctx.game.write.setLaneOdds([[40_000, 40_000, 40_000]]), "ConfigOutOfBounds"); // one per lane
+    await expectRevert(ctx.game.write.setLaneOdds([[9_999, 40_000, 40_000, 40_000]]), "ConfigOutOfBounds"); // < ×1
+    await expectRevert(ctx.game.write.setLaneOdds([[40_000, 40_000, 40_000, 2_000_001]]), "ConfigOutOfBounds"); // > ×200
 
     await ctx.game.write.setRevelacion([500, 50]);
     const [, bps, odds] = (await ctx.game.read.getRevelacion()) as [bigint, number, number];
@@ -793,16 +845,15 @@ describe("HorseRaceBook — admin", () => {
     const stranger = await gameAs(ctx, 12);
     await expectRevert(stranger.write.setBetLimits([ONE_EVA, ONE_EVA, 1]), "Ownable: caller is not the owner");
     await expectRevert(stranger.write.setRevelacion([0, 0]), "Ownable: caller is not the owner");
-    await expectRevert(stranger.write.setPayoutSplitBps([[10_000]]), "Ownable: caller is not the owner");
+    await expectRevert(stranger.write.setLaneOdds([ODDS4]), "Ownable: caller is not the owner");
     await expectRevert(stranger.write.setLanes([4]), "Ownable: caller is not the owner");
   });
 
-  it("quotePayout mirrors the settle maths and returns 0 past the paid places", async () => {
+  it("quotePayout mirrors the settle maths and returns 0 for an unknown lane", async () => {
     const ctx = await setup();
-    expect(await ctx.game.read.quotePayout([4, net(ONE_EVA), 0])).to.equal(payout(net(ONE_EVA), 0));
-    expect(await ctx.game.read.quotePayout([4, net(ONE_EVA), 2])).to.equal(payout(net(ONE_EVA), 2));
-    expect(await ctx.game.read.quotePayout([4, net(ONE_EVA), 3])).to.equal(0n);
-    expect(await ctx.game.read.quotePayout([6, net(ONE_EVA), 0])).to.equal(payout(net(ONE_EVA), 0, undefined, 300n, 6n));
+    expect(await ctx.game.read.quotePayout([0, net(ONE_EVA)])).to.equal(payout(net(ONE_EVA), 40_000));
+    expect(await ctx.game.read.quotePayout([3, net(ONE_EVA)])).to.equal(payout(net(ONE_EVA), 40_000));
+    expect(await ctx.game.read.quotePayout([4, net(ONE_EVA)])).to.equal(0n);
   });
 });
 
@@ -831,6 +882,7 @@ describe("HorseRaceBook — a full book (48 bets)", () => {
     await opGame.write.lockRace([roomId]);
     await fulfillVRF(ctx, raceId);
     const tx = await opGame.write.settleRace([raceId, SERVER_SEED, [2, 0, 3, 1], CARROT_HASH]);
+    void 0;
     const receipt = await publicClient.waitForTransactionReceipt({ hash: tx });
     expect(receipt.status).to.equal("success");
     expect(receipt.gasUsed < 4_000_000n, `gas ${receipt.gasUsed}`).to.equal(true);

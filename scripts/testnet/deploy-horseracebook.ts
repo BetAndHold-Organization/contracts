@@ -13,7 +13,9 @@
  *   3. randomProvider.setConsumerStatus(game, true, 1)
  *   4. authHub.setSpendTracker(game, true)
  *   5. authHub.setOperator(horseOperator) + game ya tiene gameOperator del constructor
- *   6. setBetLimits(min, max, maxBetsPerRace) (default 0.1 / 2 EVA / 48)  +  engineConfigHash v4 en el constructor
+ *   6. setBetLimits(min, max, maxBetsPerRace) (default 0.1 / 2 EVA / 48), setLanes(6) y
+ *      setLaneOdds (cuotas por caballo calibradas por scripts/calibrateBook.ts del backend)
+ *      + engineConfigHash v5 del Book en el constructor
  *   7. bankroll EVA + auto-fund operator ETH si hace falta
  *
  * RandomProvider ya es consumer de la subscription VRF (paso por-provider, no
@@ -51,8 +53,15 @@ const JACKPOT_BPS = 0;    // 0%
 // engineConfigHash(ENGINE_CONFIG_V1) — ver backend/src/engine/engineConfig.ts.
 // Un hash distinto hace que el verificador provably-fair del front rechace
 // todas las carreras.
+// Hash del engineConfig v5 del Book (horseBackend ENGINE_CONFIG_BOOK: 6 caballos
+// con velocidades distintas). Las cuotas de abajo salen de 1M de carreras
+// simuladas sobre ESA config (scripts/calibrateBook.ts, 2026-10-26): cambiar la
+// config exige recalibrar y volver a setear las cuotas.
 const DEFAULT_ENGINE_CONFIG_HASH =
-  "0x8043770ebc7ab1e5aace82d064c4d20ad15dbf05d2b01a8e9738997cd04805b7" as const;
+  "0x518a35337769864c5c286ccc7e63351c3231be36da773a42125f646533b26f76" as const;
+const BOOK_LANES = 6;
+/** 1e4 / p_i sobre la apuesta neta: ×2.40 / ×4.94 / ×7.20 / ×9.00 / ×10.91 / ×14.40 sobre la bruta. */
+const LANE_ODDS_BPS = [24705, 50904, 74179, 92833, 112497, 148460];
 
 const DEFAULT_BANKROLL_EVA = "200";
 const OPERATOR_MIN_ETH = parseEther("0.05");
@@ -182,6 +191,10 @@ async function main() {
   step(`setBetLimits(${formatEther(minBet)} EVA, ${formatEther(maxBet)} EVA, ${maxBets})`);
   await waitTx(await game.write.setBetLimits([minBet, maxBet, maxBets]));
   ok("Límites de apuesta seteados");
+  step(`setLanes(${BOOK_LANES}) + setLaneOdds(${LANE_ODDS_BPS.join(", ")})`);
+  await waitTx(await game.write.setLanes([BOOK_LANES]));
+  await waitTx(await game.write.setLaneOdds([LANE_ODDS_BPS]));
+  ok(`${BOOK_LANES} caballos con cuotas ${LANE_ODDS_BPS.map((o) => `×${((o / 10_000) * 0.97).toFixed(2)}`).join(" / ")} (bruta, con 3 % de fees)`);
   ok(`engineConfigHash ya seteado en el constructor: ${engineConfigHash}`);
   const [revPool, revBps, revOdds] = (await game.read.getRevelacion()) as [bigint, number, number];
   ok(`Revelación: ${revBps / 100} % del pozo al pool, paga 1 de cada ${revOdds} (pool ${revPool} wei)`);
@@ -198,8 +211,9 @@ async function main() {
     step(`Bankroll: transfiriendo ${formatEther(bankroll)} EVA al juego`);
     await waitTx(await token.write.transfer([game.address, bankroll]));
     ok(
-      `Bankroll: ${formatEther(bankroll)} EVA (exposure máx/carrera: ${maxBets} apuestas de ` +
-        `${formatEther(maxBet)} EVA en un solo carril ≈ ${formatEther((maxBet * BigInt(maxBets) * 9700n * 24n) / (10000n * 10n))} EVA)`,
+      `Bankroll: ${formatEther(bankroll)} EVA (una apuesta de ${formatEther(maxBet)} EVA al caballo más lento ` +
+        `necesita ≈ ${formatEther((maxBet * 9700n * BigInt(LANE_ODDS_BPS[LANE_ODDS_BPS.length - 1])) / (10000n * 10000n))} EVA libres; ` +
+        `el contrato rechaza las apuestas que el bankroll no cubre)`,
     );
   }
 

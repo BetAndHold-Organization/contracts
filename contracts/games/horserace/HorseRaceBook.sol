@@ -11,30 +11,35 @@ import {IHorseRaceBook} from "../../interfaces/games/horserace/IHorseRaceBook.so
  *
  * ## Lifecycle
  *
- *   createRace(roomId, commitHash)                — operator, commits the seed hash
- *     → placeBet / placeBetFor × n (n ≤ maxBetsPerRace)
+ *   createRace(roomId, commitHash)                — operator, commits the seed hash, snapshots the odds
+ *     → placeBet / placeBetFor × n (n ≤ maxBetsPerRace; a player may bet several times / lanes)
  *     → lockRace(roomId)                          — locks the worst-case exposure, requests VRF
  *     → fulfillRandomness                         — RandomProvider stores the word
  *     → (race runs off-chain, deterministic, every horse on autopilot)
  *     → settleRace(raceId, serverSeed, ranking, carrotDataHash)
  *
- * ## Economics
+ * ## Economics — fixed odds, win only
  *
- *   A bet on a lane that finishes at `place` pays
- *     netStake × laneCount × payoutSplitBps[place] / 10_000 × (10_000 − revelacionBps) / 10_000
- *   With 4 lanes and 60 / 30 / 10: 2.4× / 1.2× / 0.4× of the net stake (before
- *   the Revelación skim). The multipliers average 1× over the places, so with
- *   symmetric house horses the expected value is exactly the handler fees —
- *   the same edge as the seats mode. Nothing is hardcoded: fees come from the
- *   PaymentHandler at bet time, the split and the skim are owner config.
+ *   The horses are NOT equal: the engine config anchored by `engineConfigHash`
+ *   gives each lane its own speed factor, so each lane has its own win
+ *   probability p_i (measured by Monte Carlo on that exact config). A bet pays
+ *   only if its horse WINS:
+ *     payout = netStake × laneOddsBps[lane] / 10_000 × (10_000 − revelacionBps) / 10_000
+ *   with laneOddsBps[i] = 10_000 / p_i (fair odds on the NET stake). The
+ *   expected payout of any bet is then exactly its net stake, so the house
+ *   edge is exactly the PaymentHandler fees (3 %), whatever lanes the bets
+ *   land on and however many bets a player places. The odds are owner config
+ *   (`setLaneOdds`), snapshotted per race at createRace, and must be re-derived
+ *   whenever the engine config changes.
  *
- *   Exposure per race = worst-case pairing of lane totals with multipliers
- *   (largest total on the largest multiplier, …) minus what the race collected,
- *   or the refund premium if larger. Locked on `lockRace` against the bankroll.
+ *   Exposure per race = the most expensive winner: max_i(laneNet_i × odds_i)
+ *   minus what the race collected (or the refund premium if larger). It is
+ *   checked at every placeBet against the available liquidity — a bet the
+ *   bankroll could not pay is refused up front — and locked at lockRace.
  *
  *   Revelación: `revelacionBps` of the race's net stakes goes into a pool at
  *   settle (payouts are reduced by the same fraction, so the house edge is
- *   unchanged) and, 1 time in `revelacionOdds` — drawn from
+ *   unchanged over time) and, 1 time in `revelacionOdds` — drawn from
  *   keccak(vrfRandomWord, serverSeed, raceId) — the pool is split pro-rata
  *   among the bets on the winning lane. The pool is held as locked exposure.
  *
@@ -53,6 +58,9 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     uint8 public constant HOUSE_LANE_SENTINEL = 255;
     uint16 public constant MAX_BPS = 10_000;
     uint16 public constant MAX_BETS_CAP = 100;
+    /// @notice Odds bounds (bps over the net stake): ×1.0 … ×200.
+    uint32 public constant MIN_ODDS_BPS = 10_000;
+    uint32 public constant MAX_ODDS_BPS = 2_000_000;
     uint32 public constant EMERGENCY_GRACE_SECONDS = 30;
     uint32 public constant MIN_SETTLE_DEADLINE = 60;
     uint32 public constant MAX_SETTLE_DEADLINE = 1 days;
@@ -76,7 +84,9 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     error RaceNotFound();
     error InvalidRaceState(RaceState expected, RaceState actual);
     error RaceFull();
-    error AlreadyBet(address player);
+    /// @notice The bankroll could not pay this bet if its horse won (available liquidity vs the worst case).
+    error BetExceedsLiquidity(uint256 available, uint256 required);
+    error OddsNotConfigured();
     error PlayerIsBanned(address player);
     error InvalidLane(uint8 lane);
     error BetOutOfRange(uint256 amount, uint256 minBet, uint256 maxBet);
@@ -99,7 +109,8 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     mapping(uint256 => mapping(uint8 => uint256)) private _laneNet;
     mapping(bytes32 => uint256) public roomToRace;
     mapping(uint256 => uint256) public vrfRequestToRace;
-    mapping(uint256 => mapping(address => bool)) public hasBet;
+    /// @dev odds snapshot per race (bps over the net stake, index = lane)
+    mapping(uint256 => uint32[]) private _raceOdds;
 
     uint256 public minBet = 0.1 ether;
     uint256 public maxBet = 2 ether;
@@ -111,7 +122,8 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     uint8 public lanes = 4;
     mapping(address => bool) public bannedPlayers;
 
-    uint16[] private _payoutSplitBps;
+    /// @notice Current odds per lane (bps over the net stake): 10_000 / winProbability.
+    uint32[] private _laneOddsBps;
 
     uint16 public revelacionBps = 300;
     uint32 public revelacionOdds = 20;
@@ -130,9 +142,6 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         bytes32 engineConfigHash_
     ) PushVRFGame(token, handler, provider, authHub_, "HorseRaceBook", "1", initialOperator) {
         if (engineConfigHash_ == bytes32(0)) revert ConfigOutOfBounds();
-        _payoutSplitBps.push(6_000);
-        _payoutSplitBps.push(3_000);
-        _payoutSplitBps.push(1_000);
         currentEngineConfigHash = engineConfigHash_;
     }
 
@@ -149,8 +158,10 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     {
         if (commitHash == bytes32(0)) revert InvalidCommitHash();
         if (roomToRace[roomId] != 0) revert RoomAlreadyUsed(roomId);
+        if (_laneOddsBps.length != lanes) revert OddsNotConfigured();
 
         raceId = ++nextRaceId;
+        _raceOdds[raceId] = _laneOddsBps;
         Race storage race = _races[raceId];
         race.state = RaceState.Open;
         race.roomId = roomId;
@@ -184,7 +195,7 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         }
 
         // Worst bankroll outflow beyond what the race collected: the most
-        // expensive finishing order, or a gross refund of every bet.
+        // expensive winner, or a gross refund of every bet.
         uint256 worstPayout = _worstCasePayout(raceId, race.laneCount);
         uint256 net = race.totalNetCollected;
         uint256 payoutPremium = worstPayout > net ? worstPayout - net : 0;
@@ -207,30 +218,13 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         emit RaceLocked(raceId, race.betCount, net, exposure, requestId, race.settleBy, race.engineConfigHash);
     }
 
-    /// @dev Largest lane total on the largest multiplier, and so on (rearrangement
-    ///      inequality): the maximum the house can pay for any finishing order,
-    ///      before the Revelación skim (an upper bound, kept simple).
+    /// @dev The most expensive winner: max over lanes of laneNet × odds (before
+    ///      the Revelación skim — an upper bound, kept simple).
     function _worstCasePayout(uint256 raceId, uint8 laneCount) private view returns (uint256 worst) {
-        uint256[] memory totals = new uint256[](laneCount);
-        for (uint8 lane = 0; lane < laneCount; lane++) totals[lane] = _laneNet[raceId][lane];
-        _sortDesc(totals);
-        uint256[] memory mults = new uint256[](_payoutSplitBps.length);
-        for (uint256 i = 0; i < mults.length; i++) mults[i] = _payoutSplitBps[i];
-        _sortDesc(mults);
-        uint256 places = mults.length < laneCount ? mults.length : laneCount;
-        for (uint256 i = 0; i < places; i++) {
-            worst += (totals[i] * laneCount * mults[i]) / MAX_BPS;
-        }
-    }
-
-    /// @dev Selection sort, descending — arrays here hold at most MAX_LANES items.
-    function _sortDesc(uint256[] memory a) private pure {
-        for (uint256 i = 0; i < a.length; i++) {
-            uint256 best = i;
-            for (uint256 j = i + 1; j < a.length; j++) {
-                if (a[j] > a[best]) best = j;
-            }
-            if (best != i) (a[i], a[best]) = (a[best], a[i]);
+        uint32[] storage odds = _raceOdds[raceId];
+        for (uint8 lane = 0; lane < laneCount; lane++) {
+            uint256 liability = (_laneNet[raceId][lane] * odds[lane]) / MAX_BPS;
+            if (liability > worst) worst = liability;
         }
     }
 
@@ -269,17 +263,12 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
             }
         }
 
-        // place of each lane (255 = beyond the paid places)
-        uint8[] memory placeOf = new uint8[](laneCount);
-        for (uint8 lane = 0; lane < laneCount; lane++) placeOf[lane] = HOUSE_LANE_SENTINEL;
-        uint256 paidPlaces = _payoutSplitBps.length < laneCount ? _payoutSplitBps.length : laneCount;
-        for (uint8 place = 0; place < paidPlaces; place++) placeOf[ranking[place]] = place;
-
+        // Win only: the bets on the winning lane are paid at that lane's odds.
         Bet[] storage bets = _bets[raceId];
         uint256[] memory payouts = new uint256[](bets.length);
+        uint32 winnerOdds = _raceOdds[raceId][winnerLane];
         for (uint256 i = 0; i < bets.length; i++) {
-            uint8 place = placeOf[bets[i].lane];
-            if (place != HOUSE_LANE_SENTINEL) payouts[i] = _payoutFor(laneCount, bets[i].netStake, place);
+            if (bets[i].lane == winnerLane) payouts[i] = _payoutFor(bets[i].netStake, winnerOdds);
         }
 
         // Revelación draw: the pool goes, pro-rata, to the bets on the winning lane.
@@ -326,11 +315,10 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         emit RaceSettled(raceId, winnerLane, race.totalNetCollected, totalPaid, serverSeed, carrotDataHash);
     }
 
-    /// @dev netStake × laneCount × split[place] × (1 − revelacionBps), all in bps
-    ///      (one division at the end: no precision lost, no overflow — the
-    ///      product stays far below 2^256 for any stake the limits allow).
-    function _payoutFor(uint8 laneCount, uint256 netStake, uint8 place) private view returns (uint256) {
-        return (netStake * laneCount * _payoutSplitBps[place] * (MAX_BPS - revelacionBps)) / (uint256(MAX_BPS) * MAX_BPS);
+    /// @dev netStake × odds × (1 − revelacionBps), all in bps — one division at
+    ///      the end: no precision lost, no overflow for any stake the limits allow.
+    function _payoutFor(uint256 netStake, uint32 oddsBps) private view returns (uint256) {
+        return (netStake * oddsBps * (MAX_BPS - revelacionBps)) / (uint256(MAX_BPS) * MAX_BPS);
     }
 
     /// @dev `ranking` must be a permutation of every lane (0..laneCount-1).
@@ -403,15 +391,25 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         if (amount < minBet || amount > maxBet) revert BetOutOfRange(amount, minBet, maxBet);
         if (race.betCount >= maxBetsPerRace) revert RaceFull();
         if (bannedPlayers[bettor]) revert PlayerIsBanned(bettor);
-        if (hasBet[raceId][bettor]) revert AlreadyBet(bettor);
 
-        hasBet[raceId][bettor] = true;
         uint256 netStake = _collectAndProcessBet(bettor, potentialReferrer, amount);
 
         race.betCount += 1;
         race.totalNetCollected += netStake;
         race.totalGrossCollected += amount;
         _laneNet[raceId][lane] += netStake;
+
+        // Refuse a bet the bankroll could not pay: the worst case of THIS race
+        // (its most expensive winner, beyond what it collected) must fit in
+        // what is not already locked for other races / the Revelación pool.
+        // (The stake just collected is in the balance; lockRace locks the same figure.)
+        {
+            uint256 worst = _worstCasePayout(raceId, race.laneCount);
+            uint256 needed = worst > race.totalNetCollected ? worst - race.totalNetCollected : 0;
+            uint256 balance = evaToken.balanceOf(address(this));
+            uint256 available = balance > lockedExposure ? balance - lockedExposure : 0;
+            if (needed > available) revert BetExceedsLiquidity(available, needed);
+        }
 
         betId = ++nextBetId;
         _bets[raceId].push(Bet({player: bettor, lane: lane, betId: betId, grossStake: amount, netStake: netStake}));
@@ -524,16 +522,18 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         emit PlayerBanStatusUpdated(player, banned);
     }
 
-    /// @notice Share of the "pot" per finishing place (index 0 = winner), in bps;
-    ///         a bet's multiplier is laneCount × share. Must sum to at most MAX_BPS.
-    function setPayoutSplitBps(uint16[] calldata bps) external onlyOwner {
-        if (bps.length == 0 || bps.length > MAX_LANES) revert ConfigOutOfBounds();
-        uint256 total;
-        for (uint256 i = 0; i < bps.length; i++) total += bps[i];
-        if (total == 0 || total > MAX_BPS) revert ConfigOutOfBounds();
-        delete _payoutSplitBps;
-        for (uint256 i = 0; i < bps.length; i++) _payoutSplitBps.push(bps[i]);
-        emit PayoutSplitUpdated(bps);
+    /// @notice Odds per lane (bps over the net stake, index = lane): 10_000 / p_i
+    ///         for the win probability p_i of that lane under the anchored engine
+    ///         config. One entry per lane of `lanes`; applies to races created
+    ///         from now on (each race snapshots the odds it was opened with).
+    function setLaneOdds(uint32[] calldata bps) external onlyOwner {
+        if (bps.length != lanes) revert ConfigOutOfBounds();
+        for (uint256 i = 0; i < bps.length; i++) {
+            if (bps[i] < MIN_ODDS_BPS || bps[i] > MAX_ODDS_BPS) revert ConfigOutOfBounds();
+        }
+        delete _laneOddsBps;
+        for (uint256 i = 0; i < bps.length; i++) _laneOddsBps.push(bps[i]);
+        emit LaneOddsUpdated(bps);
     }
 
     function setRevelacion(uint16 bps, uint32 odds) external onlyOwner {
@@ -543,6 +543,8 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         emit RevelacionUpdated(bps, odds);
     }
 
+    /// @notice Field size for NEW races. The odds table must be set again for
+    ///         the new size before a race can be created (createRace checks it).
     function setLanes(uint8 count) external onlyOwner {
         if (count < MIN_LANES || count > MAX_LANES) revert ConfigOutOfBounds();
         lanes = count;
@@ -574,8 +576,12 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         return roomToRace[roomId];
     }
 
-    function getPayoutSplitBps() external view returns (uint16[] memory) {
-        return _payoutSplitBps;
+    function getLaneOdds() external view returns (uint32[] memory) {
+        return _laneOddsBps;
+    }
+
+    function getRaceOdds(uint256 raceId) external view returns (uint32[] memory) {
+        return _raceOdds[raceId];
     }
 
     function getRevelacion() external view returns (uint256 pool, uint16 bps, uint32 odds) {
@@ -586,8 +592,8 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
         return (minBet, maxBet, maxBetsPerRace);
     }
 
-    function quotePayout(uint8 laneCount, uint256 netStake, uint8 place) external view returns (uint256) {
-        if (place >= _payoutSplitBps.length) return 0;
-        return _payoutFor(laneCount, netStake, place);
+    function quotePayout(uint8 lane, uint256 netStake) external view returns (uint256) {
+        if (lane >= _laneOddsBps.length) return 0;
+        return _payoutFor(netStake, _laneOddsBps[lane]);
     }
 }

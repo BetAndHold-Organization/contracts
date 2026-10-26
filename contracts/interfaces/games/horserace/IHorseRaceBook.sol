@@ -5,22 +5,21 @@ pragma solidity 0.8.20;
  * @title IHorseRaceBook
  * @notice Interface for the "bet on a horse" mode of the Horse Race.
  *
- *         Every horse is a house horse (nobody rides); players pick a lane and
- *         a free amount within the bet limits. The same deterministic engine
- *         (anchored by `engineConfigHash`) runs the race off-chain from the VRF
- *         word and the committed server seed; the operator settles with the
- *         full finishing order.
+ *         Every horse is a house horse (nobody rides) and the horses are NOT
+ *         equal: the engine config anchored by `engineConfigHash` gives each
+ *         lane its own speed, hence its own win probability. Players pick a
+ *         lane and a free amount within the bet limits, as many bets as they
+ *         like (one race holds at most maxBetsPerRace). The deterministic
+ *         engine runs the race off-chain from the VRF word and the committed
+ *         server seed; the operator settles with the full finishing order.
  *
- *         Payout per bet is a fixed multiplier over the NET stake by finishing
- *         place of the chosen lane:
- *
- *           mult[place] = laneCount × payoutSplitBps[place] / 10_000
- *           (4 lanes, 60 / 30 / 10 → 2.4× / 1.2× / 0.4× of the net stake)
- *
- *         Because the lanes are symmetric and the multipliers average to 1×
- *         over the places, the expected value equals the handler fees exactly,
- *         like the seats mode. The house's exposure per race is the worst-case
- *         pairing of lane totals with multipliers, locked at lockRace.
+ *         Fixed odds, win only: a bet pays `netStake × laneOddsBps[lane] / 1e4`
+ *         when its horse wins and nothing otherwise, where laneOddsBps[i] =
+ *         1e4 / p_i (fair odds on the net stake, p_i measured by simulation
+ *         on the anchored engine config). The expected payout of every bet is
+ *         its net stake, so the house edge is exactly the platform fees on
+ *         every bet, whatever the players do. The race's exposure is its most
+ *         expensive winner; a bet the bankroll could not pay is refused.
  *
  *         Revelación: `revelacionBps` of every bet's net stake feeds a pool
  *         (payouts are reduced by the same fraction) and, 1 time in
@@ -104,7 +103,8 @@ interface IHorseRaceBook {
     event RevelacionUpdated(uint16 bps, uint32 odds);
 
     event BetLimitsUpdated(uint256 minBet, uint256 maxBet, uint16 maxBetsPerRace);
-    event PayoutSplitUpdated(uint16[] bps);
+    /// @notice New odds table (bps over the net stake, index = lane) for races created from now on.
+    event LaneOddsUpdated(uint32[] bps);
     event SettleDeadlineUpdated(uint32 seconds_);
     event RefundBpsUpdated(uint16 bps);
     event EngineConfigHashUpdated(bytes32 hash);
@@ -141,10 +141,13 @@ interface IHorseRaceBook {
     /// @notice Net stake riding on each lane of a race (index = lane).
     function getLaneTotals(uint256 raceId) external view returns (uint256[] memory);
     function getRaceIdByRoom(bytes32 roomId) external view returns (uint256);
-    function getPayoutSplitBps() external view returns (uint16[] memory);
+    /// @notice Odds per lane for NEW races (bps over the net stake, index = lane).
+    function getLaneOdds() external view returns (uint32[] memory);
+    /// @notice The odds a race was opened with (what its bets are paid at).
+    function getRaceOdds(uint256 raceId) external view returns (uint32[] memory);
     function getRevelacion() external view returns (uint256 pool, uint16 bps, uint32 odds);
     function getBetLimits() external view returns (uint256 minBet, uint256 maxBet, uint16 maxBetsPerRace);
-    /// @notice What a bet of `netStake` on a lane finishing at `place` (0 = winner)
-    ///         is paid, after the Revelación skim, for a field of `laneCount` horses.
-    function quotePayout(uint8 laneCount, uint256 netStake, uint8 place) external view returns (uint256);
+    /// @notice What a bet of `netStake` on `lane` is paid if that horse wins,
+    ///         after the Revelación skim, at the current odds (0 for an unknown lane).
+    function quotePayout(uint8 lane, uint256 netStake) external view returns (uint256);
 }
