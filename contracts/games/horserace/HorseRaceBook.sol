@@ -114,7 +114,7 @@ contract HorseRaceBook is IHorseRaceBook, PushVRFGame {
     mapping(uint256 => uint32[]) private _raceOdds;
 
     uint256 public minBet = 0.1 ether;
-    uint256 public maxBet = 2 ether;
+    uint256 public maxBet = 1 ether;
     uint16 public maxBetsPerRace = 48;
 
     uint32 public settleDeadlineSeconds = 900;

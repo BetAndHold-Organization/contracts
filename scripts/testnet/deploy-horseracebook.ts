@@ -13,7 +13,7 @@
  *   3. randomProvider.setConsumerStatus(game, true, 1)
  *   4. authHub.setSpendTracker(game, true)
  *   5. authHub.setOperator(horseOperator) + game ya tiene gameOperator del constructor
- *   6. setBetLimits(min, max, maxBetsPerRace) (default 0.1 / 2 EVA / 48), setLanes(6) y
+ *   6. setBetLimits(min, max, maxBetsPerRace) (default 0.1 / 1 EVA / 48), setLanes(6) y
  *      setLaneOdds (cuotas por caballo calibradas por scripts/calibrateBook.ts del backend)
  *      + engineConfigHash v5 del Book en el constructor
  *   7. bankroll EVA + auto-fund operator ETH si hace falta
@@ -25,7 +25,7 @@
  *   HORSE_OPERATOR            — wallet operadora del backend (default: deployer)
  *   HORSE_CONFIG_ADMIN        — wallet que puede tocar la config (cuotas, límites, Revelación…) sin ser owner (default: ninguna)
  *   HORSE_ENGINE_CONFIG_HASH  — hash de engineConfig (default: engine v4)
- *   HORSE_BOOK_MIN_BET / HORSE_BOOK_MAX_BET — límites de apuesta en EVA (default: 0.1 / 2)
+ *   HORSE_BOOK_MIN_BET / HORSE_BOOK_MAX_BET — límites de apuesta en EVA (default: 0.1 / 1)
  *   HORSE_BOOK_MAX_BETS       — apuestas máximas por carrera (default: 48)
  *   HORSE_BANKROLL_EVA        — bankroll en EVA (default: 200)
  *
@@ -116,7 +116,7 @@ async function main() {
     (process.env.HORSE_BANKROLL_EVA ?? "").trim() || DEFAULT_BANKROLL_EVA,
   );
   const minBet = parseEther((process.env.HORSE_BOOK_MIN_BET ?? "").trim() || "0.1");
-  const maxBet = parseEther((process.env.HORSE_BOOK_MAX_BET ?? "").trim() || "2");
+  const maxBet = parseEther((process.env.HORSE_BOOK_MAX_BET ?? "").trim() || "1");
   const maxBets = Number((process.env.HORSE_BOOK_MAX_BETS ?? "").trim() || "48");
   if (minBet === 0n || maxBet < minBet || !Number.isInteger(maxBets) || maxBets < 1 || maxBets > 100) {
     throw new Error("HORSE_BOOK_MIN_BET / HORSE_BOOK_MAX_BET / HORSE_BOOK_MAX_BETS fuera de rango");

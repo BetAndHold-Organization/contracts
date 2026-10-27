@@ -105,7 +105,7 @@ interface Ctx {
   game: any;
 }
 
-async function setup(opts: { bankroll?: bigint; revelacion?: [number, number] } = {}): Promise<Ctx> {
+async function setup(opts: { bankroll?: bigint; revelacion?: [number, number]; defaultLimits?: boolean } = {}): Promise<Ctx> {
   const token = await env.viem.deployContract("EverValueCoin");
   const handler = await env.viem.deployContract("PaymentHandler", [token.address]);
   const mlr = await env.viem.deployContract("MultiLevelReferral", [token.address, defaultRcv]);
@@ -126,6 +126,10 @@ async function setup(opts: { bankroll?: bigint; revelacion?: [number, number] } 
   await authHub.write.setSpendTracker([game.address, true]);
   if (opts.revelacion) await game.write.setRevelacion(opts.revelacion);
   await game.write.setLaneOdds([ODDS4]);
+  // the production default caps a bet at 1 EVA; the liquidity / payout maths
+  // below were written with 2 EVA bets, so the suite widens it (one test
+  // checks the shipped default instead)
+  if (!opts.defaultLimits) await game.write.setBetLimits([parseEther("0.1"), parseEther("2"), 48]);
 
   for (const idx of Object.values(PLAYER_WALLET)) {
     const addr = walletClients[idx].account.address;
@@ -215,13 +219,13 @@ function roll(word: bigint, raceId: bigint): bigint {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("HorseRaceBook — construction", () => {
-  it("ships with no odds (set per deployment), Revelación 3 % 1-in-20, limits 0.1–2 EVA × 48 bets, 4 lanes", async () => {
-    const ctx = await setup();
+  it("ships with no odds (set per deployment), Revelación 3 % 1-in-20, limits 0.1–1 EVA × 48 bets, 4 lanes", async () => {
+    const ctx = await setup({ defaultLimits: true });
     expect(await ctx.game.read.getLaneOdds()).to.deep.equal(ODDS4);
     const [pool, bps, odds] = (await ctx.game.read.getRevelacion()) as [bigint, number, number];
     expect([pool, bps, odds]).to.deep.equal([0n, 300, 20]);
     const [min, max, cap] = (await ctx.game.read.getBetLimits()) as [bigint, bigint, number];
-    expect([min, max, cap]).to.deep.equal([parseEther("0.1"), parseEther("2"), 48]);
+    expect([min, max, cap]).to.deep.equal([parseEther("0.1"), parseEther("1"), 48]);
     expect(await ctx.game.read.lanes()).to.equal(4);
     expect(await ctx.game.read.currentEngineConfigHash()).to.equal(ENGINE_HASH);
     expect(await ctx.game.read.gameOperators([operator])).to.equal(true);
@@ -354,7 +358,7 @@ describe("HorseRaceBook — placeBetFor (relayed)", () => {
     expect(placed[0].args.player.toLowerCase()).to.equal(playerA.toLowerCase()); // the player, not the relayer
     // spend cap: a second race's bet over the remaining cap is refused
     const other = await openRace(ctx, [], { lock: false });
-    const big = await signBet(ctx, "A", { roomId: other.roomId, lane: 0, amount: parseEther("2") });
+    const big = await signBet(ctx, "A", { roomId: other.roomId, lane: 0, amount: parseEther("1") });
     await ctx.game.write.setBetLimits([parseEther("0.1"), parseEther("20"), 48]);
     const tooBig = await signBet(ctx, "A", { roomId: other.roomId, lane: 0, amount: parseEther("10") });
     await expectRevert(

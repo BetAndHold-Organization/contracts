@@ -42,7 +42,7 @@
  *   MAINNET_HORSE_OPERATOR              required — the backend's hot wallet (gameOperator)
  *   MAINNET_HORSE_CONFIG_ADMIN          optional — may tune odds / limits / Revelación / lanes without the owner
  *   MAINNET_HORSE_ENGINE_CONFIG_HASH    default: engine v4
- *   MAINNET_BOOK_MIN_BET / MAINNET_BOOK_MAX_BET   default: 0.1 / 2 (EVA)
+ *   MAINNET_BOOK_MIN_BET / MAINNET_BOOK_MAX_BET   default: 0.1 / 1 (EVA)
  *   MAINNET_BOOK_MAX_BETS               default: 48 (bets per race, ≤ 100)
  *   MAINNET_HORSE_HOUSE_BPS / _REFERRAL_BPS / _JACKPOT_BPS   default: 150 / 150 / 0
  *   MAINNET_HORSE_SETTLE_DEADLINE_SECONDS   default: 300 (contract default is 900)
@@ -138,7 +138,7 @@ const REFERRAL_BPS = bpsWithDefault("MAINNET_HORSE_REFERRAL_BPS", 150);
 const JACKPOT_BPS = bpsWithDefault("MAINNET_HORSE_JACKPOT_BPS", 0);
 
 const MIN_BET = parseEther((process.env.MAINNET_BOOK_MIN_BET ?? "").trim() || "0.1");
-const MAX_BET = parseEther((process.env.MAINNET_BOOK_MAX_BET ?? "").trim() || "2");
+const MAX_BET = parseEther((process.env.MAINNET_BOOK_MAX_BET ?? "").trim() || "1");
 const MAX_BETS = Number((process.env.MAINNET_BOOK_MAX_BETS ?? "").trim() || "48");
 
 // Seconds after lock before ANYONE may force a refund of an unsettled race.
