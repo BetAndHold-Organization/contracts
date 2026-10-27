@@ -14,8 +14,8 @@ import {BlackjackEngineLib} from "./libraries/BlackjackEngineLib.sol";
  *
  *         Provably fair, per round:
  *           1. The backend publishes `commit = keccak256(serverSeed ‖ player)`.
- *           2. The player bets (`startRound`) — the contract requests ONE Chainlink
- *              VRF word; the requestId is the round id.
+ *           2. The player bets (`startRound`) — the contract requests ONE random
+ *              word from the platform's RandomProvider; the requestId is the round id.
  *           3. Cards come from `seed = keccak256(serverSeed ‖ vrfWord ‖ requestId ‖ this)`
  *              through a keccak-driven Fisher-Yates over six decks
  *              (BlackjackEngineLib). The backend deals off-chain from the same seed.
