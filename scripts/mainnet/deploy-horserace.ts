@@ -41,7 +41,7 @@
  *   CONFIRM_MAINNET=yes                 required
  *   MAINNET_HORSE_OPERATOR              required — the backend's hot wallet (gameOperator)
  *   MAINNET_HORSE_CONFIG_ADMIN          optional — may tune tiers / split / Revelación / lanes without the owner
- *   MAINNET_HORSE_ENGINE_CONFIG_HASH    default: engine v4
+ *   MAINNET_HORSE_ENGINE_CONFIG_HASH    default: engine v6 — casa en ventana óptima, zanahoria ×1.25
  *   MAINNET_HORSE_BET_TIERS             default: "0.1,0.2" (EVA, comma-separated)
  *   MAINNET_HORSE_HOUSE_BPS / _REFERRAL_BPS / _JACKPOT_BPS   default: 150 / 150 / 0
  *   MAINNET_HORSE_SETTLE_DEADLINE_SECONDS   default: 300 (contract default is 900)
@@ -138,7 +138,7 @@ const FEE_RECIPIENT = addressWithDefault(
 // The frontend verifier recomputes this hash — a different value makes every
 // race fail provably-fair verification.
 const DEFAULT_ENGINE_CONFIG_HASH: Hash32 =
-  "0x8043770ebc7ab1e5aace82d064c4d20ad15dbf05d2b01a8e9738997cd04805b7";
+  "0xa54b76abca9c96849a206f91942b545b0f1eb732d3cfdcead58ce1e6f8e6037e";
 
 const HOUSE_BPS = bpsWithDefault("MAINNET_HORSE_HOUSE_BPS", 150);
 const REFERRAL_BPS = bpsWithDefault("MAINNET_HORSE_REFERRAL_BPS", 150);

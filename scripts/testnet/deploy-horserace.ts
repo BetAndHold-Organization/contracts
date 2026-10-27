@@ -13,7 +13,7 @@
  *   3. randomProvider.setConsumerStatus(game, true, 1)
  *   4. authHub.setSpendTracker(game, true)
  *   5. authHub.setOperator(horseOperator) + game ya tiene gameOperator del constructor
- *   6. setBetTier × HORSE_BET_TIERS (default 0.1 y 0.2 EVA)  +  engineConfigHash v3 en el constructor
+ *   6. setBetTier × HORSE_BET_TIERS (default 0.1 y 0.2 EVA)  +  engineConfigHash v6 en el constructor
  *   7. bankroll EVA + auto-fund operator ETH si hace falta
  *
  * RandomProvider ya es consumer de la subscription VRF (paso por-provider, no
@@ -22,7 +22,7 @@
  * Env opcionales (además de los de loadTestnetEnv):
  *   HORSE_OPERATOR            — wallet operadora del backend (default: deployer)
  *   HORSE_CONFIG_ADMIN        — wallet que puede tocar la config (tiers, Revelación…) sin ser owner (default: ninguna)
- *   HORSE_ENGINE_CONFIG_HASH  — hash de engineConfig (default: engine v4)
+ *   HORSE_ENGINE_CONFIG_HASH  — hash de engineConfig (default: engine v6 — casa en ventana óptima, zanahoria ×1.25)
  *   HORSE_BET_TIERS           — tiers de sala en EVA, separados por coma (default: "0.1,0.2")
  *   HORSE_BANKROLL_EVA        — bankroll en EVA (default: 200)
  *
@@ -70,7 +70,7 @@ function parseTiers(raw: string): bigint[] {
 // Un hash distinto hace que el verificador provably-fair del front rechace
 // todas las carreras.
 const DEFAULT_ENGINE_CONFIG_HASH =
-  "0x8043770ebc7ab1e5aace82d064c4d20ad15dbf05d2b01a8e9738997cd04805b7" as const;
+  "0xa54b76abca9c96849a206f91942b545b0f1eb732d3cfdcead58ce1e6f8e6037e" as const;
 
 const DEFAULT_BANKROLL_EVA = "200";
 const OPERATOR_MIN_ETH = parseEther("0.05");
