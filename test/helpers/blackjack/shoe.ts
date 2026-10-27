@@ -1,5 +1,5 @@
 // VENDORED COPY — source of truth: blackjackBackend/src/engine/deterministic/shoe.ts.
-// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-rounds.json).
+// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-table-rounds.json).
 import { encodePacked, hexToBigInt, keccak256, type Address, type Hex } from "viem";
 import { CARDS_PER_DECK, assertCard, type Card } from "./cards.js";
 import { RULES } from "./rules.js";
@@ -32,7 +32,7 @@ export function commitFor(serverSeed: Hex, player: Address): Hex {
 /**
  * Six-deck shoe shuffled lazily with a partial Fisher-Yates driven by a keccak
  * chain, so only the cards actually dealt are ever computed. Mirrors
- * `BlackjackEngineLib` exactly:
+ * `BlackjackTableLib` exactly:
  *
  *   slot[i] = i % 52 initially (six copies of every card)
  *   for draw i: s = keccak256(abi.encodePacked(s, uint16(i)));

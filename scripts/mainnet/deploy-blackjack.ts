@@ -1,12 +1,14 @@
 /**
- * Deploys BlackjackGame to Arbitrum One against the live V6 platform core
- * (index.json → platform.core) and wires it up:
+ * Deploys BlackjackTableGame (classic live tables, up to seven seats) to
+ * Arbitrum One against the live V6 platform core (index.json → platform.core)
+ * and wires it up:
  *
- *   1. deploy BlackjackGame(token, handler, randomProvider, authHub, operator)
+ *   1. deploy BlackjackTableLib (external library: the table replay) and
+ *      BlackjackTableGame(token, handler, randomProvider, authHub, operator) linked to it
  *   2. randomProvider.setConsumerStatus(game, true, 1)
  *   3. paymentHandler.registerGame(game, game, feeRecipient, house, referral, jackpot)
  *   4. authHub.setSpendTracker(game, true)  +  authHub.setOperator(operator, true)
- *   5. setTableConfig(min / max / max side bet, settleTimeout, refundTimeout)
+ *   5. setTableConfig(tables, seats, min / max / max side bet, settleTimeout, refundTimeout)
  *   6. optional bankroll transfer
  *
  *   CONFIRM_MAINNET=yes MAINNET_BLACKJACK_OPERATOR=0x... \
@@ -22,8 +24,9 @@
  * Table 0.1 – 1 EVA, Perfect Pairs ≤ 0.25 EVA: little money at stake while the
  * game ships unlisted (0.1 EVA is the platform minimum bet). Raise later with
  * setTableConfig — the backend re-reads the table from the chain on restart.
- * Worst-case bankroll outflow per round at the top of the table:
- * 5.5 × maxBet + 26 × maxSideBet (double or split, two hands, insurance, suited pair).
+ * Worst-case bankroll outflow per SEAT at the top of the table:
+ * 5.5 × maxBet + 26 × maxSideBet (double or split, two hands, insurance, suited pair);
+ * a full table is seven times that.
  *
  * ── Fee split ───────────────────────────────────────────────────────────
  * Defaults to 0.45 % house / 0.45 % referral / 0 % jackpot (0.9 % total): the
@@ -35,7 +38,7 @@
  * time, the bankroll absorbs the difference).
  *
  * ── Randomness ──────────────────────────────────────────────────────────
- * BlackjackGame only talks to the RandomProvider (requestRandomNumbers →
+ * BlackjackTableGame only talks to the RandomProvider (requestRandomNumbers →
  * getRawWord), so it works with whatever coordinator the provider is pointed
  * at — on mainnet the platform's own coordinator, no Chainlink subscription.
  *
@@ -43,8 +46,9 @@
  *   CONFIRM_MAINNET=yes                 required
  *   MAINNET_BLACKJACK_OPERATOR          required — the backend's hot wallet (gameOperator + AuthHub operator)
  *   MAINNET_BLACKJACK_MIN_BET / _MAX_BET / _MAX_SIDE_BET   default: 0.1 / 1 / 0.25 (EVA)
+ *   MAINNET_BLACKJACK_TABLES / _SEATS   default: 1 / 7
  *   MAINNET_BLACKJACK_HOUSE_BPS / _REFERRAL_BPS / _JACKPOT_BPS   default: 45 / 45 / 0
- *   MAINNET_BLACKJACK_SETTLE_TIMEOUT_SECONDS   default: 600  (operator may resolve an abandoned round)
+ *   MAINNET_BLACKJACK_SETTLE_TIMEOUT_SECONDS   default: 600  (operator may refund a round whose word never came)
  *   MAINNET_BLACKJACK_REFUND_TIMEOUT_SECONDS   default: 3600 (anyone may refund an unsettled round)
  *   MAINNET_BLACKJACK_BANKROLL          default: "0" = skip, fund manually
  *   MAINNET_EVA_TOKEN_ADDRESS, MAINNET_PAYMENT_HANDLER_ADDRESS,
@@ -127,6 +131,8 @@ const MAX_BET = evaWithDefault("MAINNET_BLACKJACK_MAX_BET", "1");
 const MAX_SIDE_BET = evaWithDefault("MAINNET_BLACKJACK_MAX_SIDE_BET", "0.25");
 const SETTLE_TIMEOUT = secondsWithDefault("MAINNET_BLACKJACK_SETTLE_TIMEOUT_SECONDS", 600);
 const REFUND_TIMEOUT = secondsWithDefault("MAINNET_BLACKJACK_REFUND_TIMEOUT_SECONDS", 3600);
+const TABLES = secondsWithDefault("MAINNET_BLACKJACK_TABLES", 1);
+const SEATS = secondsWithDefault("MAINNET_BLACKJACK_SEATS", 7);
 
 const CONSUMER_RANGE_LIMIT = 1n; // one random word per round
 
@@ -151,6 +157,7 @@ async function main() {
     throw new Error("HOUSE_BPS + REFERRAL_BPS + JACKPOT_BPS must be < 10000 (PaymentHandler.MAX_BPS).");
   }
   if (MIN_BET === 0n || MIN_BET > MAX_BET) throw new Error("MAINNET_BLACKJACK_MIN_BET must be > 0 and ≤ MAX_BET");
+  if (TABLES < 1 || TABLES > 16 || SEATS < 1 || SEATS > 7) throw new Error("MAINNET_BLACKJACK_TABLES 1..16, _SEATS 1..7");
   if (SETTLE_TIMEOUT < 60 || REFUND_TIMEOUT <= SETTLE_TIMEOUT) {
     throw new Error("timeouts: SETTLE_TIMEOUT ≥ 60 s and REFUND_TIMEOUT > SETTLE_TIMEOUT");
   }
@@ -159,7 +166,7 @@ async function main() {
   if (existing) {
     const parsed = JSON.parse(existing);
     throw new Error(
-      `BlackjackGame already deployed at ${parsed.blackjackGame} (${DEPLOYMENT_FILE.pathname}). ` +
+      `BlackjackTableGame already deployed at ${parsed.blackjackGame} (${DEPLOYMENT_FILE.pathname}). ` +
         `This script is one-shot; delete that file first if you really need to redeploy.`,
     );
   }
@@ -183,9 +190,9 @@ async function main() {
   const wait = (hash: `0x${string}`) => publicClient.waitForTransactionReceipt({ hash });
 
   const netStakeBps = 10000 - HOUSE_BPS - REFERRAL_BPS - JACKPOT_BPS;
-  const maxExposure = (MAX_BET * 55n) / 10n + MAX_SIDE_BET * 26n;
+  const maxExposure = ((MAX_BET * 55n) / 10n + MAX_SIDE_BET * 26n) * BigInt(SEATS) * BigInt(TABLES);
 
-  banner("BlackjackGame — Arbitrum Mainnet (V6 core)");
+  banner("BlackjackTableGame — Arbitrum Mainnet (V6 core)");
   console.log("Network:          ", networkName, `(chainId ${chainId})`);
   console.log("Deployer (owner): ", deployerAddr);
   console.log("Deployer ETH:     ", formatEther(deployerETH), "ETH");
@@ -195,14 +202,14 @@ async function main() {
   console.log("RandomProvider:   ", RANDOM);
   console.log("AuthHub:          ", AUTH_HUB);
   console.log("Fee recipient:    ", FEE_RECIPIENT);
-  console.log("Table (EVA):      ", `${formatEther(MIN_BET)} – ${formatEther(MAX_BET)}, Perfect Pairs ≤ ${formatEther(MAX_SIDE_BET)}`);
+  console.log("Tables:           ", `${TABLES} × ${SEATS} seats, ${formatEther(MIN_BET)} – ${formatEther(MAX_BET)} EVA, Perfect Pairs ≤ ${formatEther(MAX_SIDE_BET)}`);
   console.log(
     "Fee split:        ",
     `${HOUSE_BPS / 100}% house / ${REFERRAL_BPS / 100}% referral / ${JACKPOT_BPS / 100}% jackpot`,
     `(net stake ${netStakeBps} bps; payouts on gross wagers)`,
   );
   console.log("Timeouts:         ", `settle ${SETTLE_TIMEOUT} s / refund ${REFUND_TIMEOUT} s`);
-  console.log("Max exposure/round:", `${formatEther(maxExposure)} EVA`);
+  console.log("Max exposure (all tables full):", `${formatEther(maxExposure)} EVA`);
   console.log("Bankroll:         ", BANKROLL === "0" ? "SKIPPED (fund manually after deploy)" : `${BANKROLL} EVA`);
 
   if (deployerETH === 0n) {
@@ -243,20 +250,25 @@ async function main() {
   }
 
   // ── 1. Deploy ────────────────────────────────────────────────────────────
-  step("Deploying BlackjackGame");
-  const game = await viem.deployContract("BlackjackGame", [TOKEN_ADDRESS, HANDLER, RANDOM, AUTH_HUB, OPERATOR]);
+  step("Deploying BlackjackTableLib + BlackjackTableGame");
+  const lib = await viem.deployContract("BlackjackTableLib");
+  ok(`BlackjackTableLib: ${lib.address}`);
+  const game = await viem.deployContract("BlackjackTableGame", [TOKEN_ADDRESS, HANDLER, RANDOM, AUTH_HUB, OPERATOR], {
+    libraries: { BlackjackTableLib: lib.address },
+  });
   const deployBlock = await publicClient.getBlockNumber();
-  ok(`BlackjackGame: ${game.address} (block ~${deployBlock})`);
+  ok(`BlackjackTableGame: ${game.address} (block ~${deployBlock})`);
 
   // Persist immediately: from here on a failure must never lose the address.
   const record = {
-    contract: "BlackjackGame",
+    contract: "BlackjackTableGame",
     network: networkName,
     chainId,
     deployedAt: new Date().toISOString(),
     deployBlock: deployBlock.toString(),
     deployer: deployerAddr,
     blackjackGame: game.address,
+    blackjackTableLib: lib.address,
     operator: OPERATOR,
     rulesVersion: Number(await game.read.RULES_VERSION()),
     infrastructure: {
@@ -270,6 +282,8 @@ async function main() {
       houseEdgeBps: HOUSE_BPS,
       referralBps: REFERRAL_BPS,
       jackpotBps: JACKPOT_BPS,
+      tables: TABLES,
+      seats: SEATS,
       minBetEva: formatEther(MIN_BET),
       maxBetEva: formatEther(MAX_BET),
       maxSideBetEva: formatEther(MAX_SIDE_BET),
@@ -289,7 +303,7 @@ async function main() {
   await randomProvider.simulate.setConsumerStatus(consumerArgs).catch((e: unknown) => {
     throw new Error(
       `setConsumerStatus reverted in simulation against the live RandomProvider at ${RANDOM}. ` +
-        `BlackjackGame IS deployed at ${game.address} — do not redeploy. Original error: ${e}`,
+        `BlackjackTableGame IS deployed at ${game.address} — do not redeploy. Original error: ${e}`,
     );
   });
   await wait(await randomProvider.write.setConsumerStatus(consumerArgs));
@@ -309,7 +323,7 @@ async function main() {
   await paymentHandler.simulate.registerGame(registerArgs).catch((e: unknown) => {
     throw new Error(
       `registerGame(${registerArgs.join(", ")}) reverted in simulation against the live PaymentHandler at ${HANDLER}. ` +
-        `BlackjackGame IS deployed at ${game.address} — do not redeploy. Original error: ${e}`,
+        `BlackjackTableGame IS deployed at ${game.address} — do not redeploy. Original error: ${e}`,
     );
   });
   await wait(await paymentHandler.write.registerGame(registerArgs));
@@ -333,6 +347,8 @@ async function main() {
     await game.write.setTableConfig([
       {
         enabled: true,
+        tables: TABLES,
+        seats: SEATS,
         minBet: MIN_BET,
         maxBet: MAX_BET,
         maxSideBet: MAX_SIDE_BET,
@@ -341,7 +357,7 @@ async function main() {
       },
     ]),
   );
-  ok(`Table enabled: ${formatEther(MIN_BET)} – ${formatEther(MAX_BET)} EVA, side ≤ ${formatEther(MAX_SIDE_BET)} EVA`);
+  ok(`${TABLES} × ${SEATS} seats enabled: ${formatEther(MIN_BET)} – ${formatEther(MAX_BET)} EVA, side ≤ ${formatEther(MAX_SIDE_BET)} EVA`);
 
   // ── 4. Funding ───────────────────────────────────────────────────────────
   if (BANKROLL !== "0") {
@@ -354,13 +370,13 @@ async function main() {
   ok(`Deployment record: ${DEPLOYMENT_FILE.pathname}`);
 
   banner("DONE");
-  console.log("BlackjackGame:", game.address);
+  console.log("BlackjackTableGame:", game.address, " lib:", lib.address);
   console.log("Deploy block: ", deployBlock.toString());
   console.log("\nNext:");
   console.log("  - add \"blackjack\" to the operatorsServer deployment JSON / index.json");
   console.log("  - NEXT_PUBLIC_BLACKJACK_ADDRESS in the shell, VITE_BLACKJACK_GAME in the blackjackClient secrets");
   console.log("  - BLACKJACK_GAME_ADDRESS (+ core addresses) in the blackjack backend .env; leave VRF_* empty");
-  if (BANKROLL === "0") console.log("  - fund the bankroll: transfer EVA to the game address (startRound reverts without it)");
+  if (BANKROLL === "0") console.log("  - fund the bankroll: transfer EVA to the game address (placeBet reverts without it)");
   console.log("  - the operator wallet needs ETH for gas");
 }
 

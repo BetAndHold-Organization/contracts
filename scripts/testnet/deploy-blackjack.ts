@@ -1,22 +1,25 @@
 /**
- * Incremental testnet deploy — BlackjackGame on Arbitrum Sepolia.
+ * Incremental testnet deploy — BlackjackTableGame (classic live tables, up to
+ * seven seats) on Arbitrum Sepolia.
  *
  *   npm run deploy:blackjack:testnet
  *   (= npx hardhat run scripts/testnet/deploy-blackjack.ts --network arbitrumSepolia)
  *
  * Reads the existing platform deployment (deployments/arbitrumSepolia.json),
- * deploys ONLY BlackjackGame against the already-deployed core (token,
+ * deploys ONLY the blackjack table against the already-deployed core (token,
  * PaymentHandler, RandomProvider, AuthHub) and runs the registration
  * checklist from GAME_AUTHOR_GUIDE §7:
  *
- *   1. deploy BlackjackGame(token, handler, provider, authHub, operator)
+ *   1. deploy BlackjackTableLib (the table replay, an external library) and
+ *      BlackjackTableGame(token, handler, provider, authHub, operator) linked to it
  *   2. paymentHandler.registerGame(game, game, feeRecipient, 45, 45, 0) — 0.9 % total,
  *      paid by the game out of its rules edge (payouts are on gross wagers)
  *   3. randomProvider.setConsumerStatus(game, true, 1)
  *   4. authHub.setSpendTracker(game, true)
  *   5. authHub.setOperator(operator, true) — the backend relays *For actions itself
  *      (game.setGameOperator is done by the constructor)
- *   6. setTableConfig(min 0.1 / max 1 EVA, Perfect Pairs max 0.25 EVA, 10 min / 1 h) — same as mainnet
+ *   6. setTableConfig(N tables × 7 seats, min 0.1 / max 1 EVA, Perfect Pairs max 0.25 EVA,
+ *      10 min / 1 h) — same limits as mainnet
  *   7. bankroll EVA + top up operator ETH if needed
  *
  * RandomProvider is already a consumer of the VRF subscription (per-provider,
@@ -24,8 +27,9 @@
  *
  * Optional env:
  *   BLACKJACK_OPERATOR      — backend wallet (gameOperator + AuthHub operator); default: deployer
- *   BLACKJACK_BANKROLL_EVA  — bankroll in EVA (default 200)
+ *   BLACKJACK_BANKROLL_EVA  — bankroll in EVA (default 300: two full tables at max bets)
  *   BLACKJACK_MIN_BET_EVA / BLACKJACK_MAX_BET_EVA / BLACKJACK_MAX_SIDE_BET_EVA (defaults 0.1 / 1 / 0.25)
+ *   BLACKJACK_TABLES / BLACKJACK_SEATS (defaults 2 / 7)
  *
  * Updates deployments/arbitrumSepolia.json (contracts.blackjack) and refreshes
  * the vendored copies in backends/operatorsServer and blackjackBackend if present.
@@ -49,7 +53,7 @@ const JACKPOT_BPS = 0;
 const SETTLE_TIMEOUT = 10 * 60; // operator may resolve an abandoned round
 const REFUND_TIMEOUT = 60 * 60; // anyone may refund an unsettled round
 
-const DEFAULT_BANKROLL_EVA = "200";
+const DEFAULT_BANKROLL_EVA = "300";
 const OPERATOR_MIN_ETH = parseEther("0.05");
 const OPERATOR_TOPUP_ETH = parseEther("0.1");
 
@@ -96,6 +100,8 @@ async function main() {
   const minBet = parseEther(envOr("BLACKJACK_MIN_BET_EVA", "0.1"));
   const maxBet = parseEther(envOr("BLACKJACK_MAX_BET_EVA", "1"));
   const maxSideBet = parseEther(envOr("BLACKJACK_MAX_SIDE_BET_EVA", "0.25"));
+  const tables = Number(envOr("BLACKJACK_TABLES", "2"));
+  const seats = Number(envOr("BLACKJACK_SEATS", "7"));
 
   banner("BLACKJACK — Incremental deploy (Arbitrum Sepolia)");
   console.log("Network:        ", networkName, `(chainId ${chainId})`);
@@ -107,17 +113,17 @@ async function main() {
   console.log("AuthHub:        ", core.authHub);
   console.log("Fee recipient:  ", deployment.wallets.feeRecipient);
   console.log("Fees:           ", `${HOUSE_BPS / 100}% house + ${REFERRAL_BPS / 100}% referral + ${JACKPOT_BPS / 100}% jackpot`);
-  console.log("Table:          ", `${formatEther(minBet)}–${formatEther(maxBet)} EVA, Perfect Pairs ≤ ${formatEther(maxSideBet)} EVA`);
+  console.log("Tables:         ", `${tables} × ${seats} seats, ${formatEther(minBet)}–${formatEther(maxBet)} EVA, Perfect Pairs ≤ ${formatEther(maxSideBet)} EVA`);
 
-  banner("1. Deploy BlackjackGame");
-  const game = await viem.deployContract("BlackjackGame", [
-    core.evaToken,
-    core.paymentHandler,
-    core.randomProvider,
-    core.authHub,
-    operator,
-  ]);
-  ok(`BlackjackGame: ${game.address}`);
+  banner("1. Deploy BlackjackTableLib + BlackjackTableGame");
+  const lib = await viem.deployContract("BlackjackTableLib");
+  ok(`BlackjackTableLib: ${lib.address}`);
+  const game = await viem.deployContract(
+    "BlackjackTableGame",
+    [core.evaToken, core.paymentHandler, core.randomProvider, core.authHub, operator],
+    { libraries: { BlackjackTableLib: lib.address } },
+  );
+  ok(`BlackjackTableGame: ${game.address}`);
 
   banner("2. Platform registration");
   const handler = await viem.getContractAt("PaymentHandler", core.paymentHandler);
@@ -149,21 +155,21 @@ async function main() {
   step("setTableConfig");
   await waitTx(
     await game.write.setTableConfig([
-      { enabled: true, minBet, maxBet, maxSideBet, settleTimeout: SETTLE_TIMEOUT, refundTimeout: REFUND_TIMEOUT },
+      { enabled: true, tables, seats, minBet, maxBet, maxSideBet, settleTimeout: SETTLE_TIMEOUT, refundTimeout: REFUND_TIMEOUT },
     ]),
   );
-  ok(`Table enabled: ${formatEther(minBet)}–${formatEther(maxBet)} EVA, side ≤ ${formatEther(maxSideBet)} EVA, ${SETTLE_TIMEOUT}s / ${REFUND_TIMEOUT}s`);
+  ok(`${tables} tables × ${seats} seats enabled: ${formatEther(minBet)}–${formatEther(maxBet)} EVA, side ≤ ${formatEther(maxSideBet)} EVA, ${SETTLE_TIMEOUT}s / ${REFUND_TIMEOUT}s`);
 
   banner("4. Funding");
   const token = await viem.getContractAt("EverValueCoin", core.evaToken);
   const deployerEva = (await token.read.balanceOf([deployer])) as bigint;
   const bankroll = deployerEva >= bankrollEva ? bankrollEva : deployerEva;
   if (bankroll === 0n) {
-    console.warn("  ⚠ Deployer has no EVA — the game has NO bankroll (startRound will revert)");
+    console.warn("  ⚠ Deployer has no EVA — the game has NO bankroll (placeBet will revert)");
   } else {
     step(`Bankroll: transferring ${formatEther(bankroll)} EVA to the game`);
     await waitTx(await token.write.transfer([game.address, bankroll]));
-    ok(`Bankroll: ${formatEther(bankroll)} EVA (max exposure per round at 1 EVA + 0.25 side ≈ 12 EVA)`);
+    ok(`Bankroll: ${formatEther(bankroll)} EVA (max exposure per seat at 1 EVA + 0.25 side ≈ 12 EVA; a full table ≈ 84 EVA)`);
   }
 
   if (operator.toLowerCase() !== deployer.toLowerCase()) {
@@ -182,8 +188,8 @@ async function main() {
   banner("5. Save deployment");
   const extended = {
     ...deployment,
-    contracts: { ...deployment.contracts, blackjack: game.address as Addr },
-  } as Deployment & { contracts: Deployment["contracts"] & { blackjack: Addr } };
+    contracts: { ...deployment.contracts, blackjack: game.address as Addr, blackjackTableLib: lib.address as Addr },
+  } as Deployment & { contracts: Deployment["contracts"] & { blackjack: Addr; blackjackTableLib: Addr } };
   const savedPath = await saveDeployment(extended);
   ok(`deployments JSON updated: ${savedPath}`);
 
@@ -203,7 +209,7 @@ async function main() {
   }
 
   banner("DONE");
-  console.log("BlackjackGame:", game.address);
+  console.log("BlackjackTableGame:", game.address, " (lib", lib.address + ")");
   console.log("\nBackend env: BLACKJACK_GAME_ADDRESS=" + game.address);
   console.log("Client env:  VITE_BLACKJACK_GAME=" + game.address);
 }

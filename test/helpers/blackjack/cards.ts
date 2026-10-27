@@ -1,5 +1,5 @@
 // VENDORED COPY — source of truth: blackjackBackend/src/engine/deterministic/cards.ts.
-// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-rounds.json).
+// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-table-rounds.json).
 /**
  * Card primitives shared by backend, client verifier and (mirrored) Solidity.
  *

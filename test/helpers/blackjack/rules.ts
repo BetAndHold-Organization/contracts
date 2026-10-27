@@ -1,11 +1,11 @@
 // VENDORED COPY — source of truth: blackjackBackend/src/engine/deterministic/rules.ts.
-// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-rounds.json).
+// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-table-rounds.json).
 import { keccak256, stringToBytes, type Hex } from "viem";
 import { canonicalJson } from "./engineConfig.js";
 
 /**
  * Table rules, version 1. These are CONSTANTS mirrored in
- * `BlackjackEngineLib.sol`; changing any of them is a new contract version.
+ * `BlackjackTableLib.sol`; changing any of them is a new contract version.
  *
  * Summary (closed with Pablo 2026-09-12): 6 decks reshuffled every round,
  * blackjack pays 3:2 (initial two cards only), dealer hits soft 17, double only

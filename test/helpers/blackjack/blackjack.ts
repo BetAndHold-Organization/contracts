@@ -1,5 +1,5 @@
 // VENDORED COPY — source of truth: blackjackBackend/src/engine/deterministic/blackjack.ts.
-// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-rounds.json).
+// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-table-rounds.json).
 import {
   handValue,
   isAce,
@@ -106,7 +106,7 @@ export function evalPerfectPairs(a: Card, b: Card): SideBetOutcome {
 /**
  * One blackjack round as a stepper. The same class drives live play on the
  * backend, the simulator, the golden-vector generator and the browser
- * verifier, and it mirrors `BlackjackEngineLib.sol` step for step.
+ * verifier, and it mirrors `BlackjackTableLib.sol` step for step.
  *
  * Deal order: player, dealer (up), player, dealer (hole). With an ace up the
  * insurance decision comes first, then the dealer peeks; with a ten up the

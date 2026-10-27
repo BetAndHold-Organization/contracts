@@ -1,5 +1,5 @@
 // VENDORED COPY — source of truth: blackjackBackend/src/engine/deterministic/actions.ts.
-// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-rounds.json).
+// Kept byte-identical by the shared golden vectors (test/fixtures/blackjack-golden-table-rounds.json).
 import { keccak256, type Hex } from "viem";
 
 /** Player actions, encoded as one byte each (the contract takes `bytes actions`). */
