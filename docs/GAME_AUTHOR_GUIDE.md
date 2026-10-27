@@ -471,7 +471,9 @@ BetSettled.data:  abi.decode(data, (uint256 raceId, uint8 winnerLane, uint8 lane
 ```
 
 `BetSettled.payout` is everything that bet received: its podium share
-(`payoutSplitBps`, default 60/30/10 of the net pot after the Revelación skim)
+(`payoutSplitBps`, default 60/30/10 of the net pot after the Revelación skim;
+the skim comes off the players' net stakes only and house lanes top up the
+post-skim amount, so the edge stays the fees at any field size)
 plus the whole Revelación pool when the draw hit that race (`RevelacionWon`).
 `RacePodium(raceId, ranking, payouts)` lists the finishing order and the
 per-lane payouts; `RaceSettled.prize` is the pot that was split (post-skim).

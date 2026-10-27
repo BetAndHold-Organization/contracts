@@ -33,14 +33,23 @@ import {IHorseRaceGame} from "../../interfaces/games/horserace/IHorseRaceGame.so
  *   handler fees when house horses play a symmetric strategy (see the engine's
  *   house heuristic docs) — whatever the split, as long as it sums to 100 %.
  *
- *   Revelación: `revelacionBps` of every net pot is skimmed BEFORE the split
- *   into `revelacionPool`, and with a 1-in-`revelacionOdds` chance per settled
- *   race — drawn from keccak(vrfRandomWord, serverSeed, raceId), fixed before
- *   anyone could steer it — the winning player takes the whole pool on top.
- *   A house-horse winner leaves the pool untouched. Everything skimmed goes
- *   back to players sooner or later, so the house edge is unchanged; what
- *   changes is the variance (the surprise). The pool is held as LOCKED
- *   exposure, so it is never bankroll for new races (`availableLiquidity`).
+ *   Revelación: `revelacionBps` of the PLAYERS' net stakes is skimmed into
+ *   `revelacionPool` BEFORE the split, and with a 1-in-`revelacionOdds` chance
+ *   per settled race — drawn from keccak(vrfRandomWord, serverSeed, raceId),
+ *   fixed before anyone could steer it — the winning player takes the whole
+ *   pool on top. A house-horse winner leaves the pool untouched. Everything
+ *   skimmed goes back to players sooner or later, so the house edge is
+ *   unchanged; what changes is the variance (the surprise).
+ *   The skim is funded by players ONLY: a house lane tops up the POST-skim
+ *   amount (netPerSeat × (1 − bps)), i.e. exactly what each player leaves in
+ *   the splittable pot. Skimming the house top-up as well would move bankroll
+ *   into a pool only players can win — a negative edge whenever house horses
+ *   run (−5.7 % at k = 1 with 3 % fees). With the fix, a player's expected
+ *   return is netPerSeat × (1 − bps) from the podium plus netPerSeat × bps
+ *   from the pool = the whole net stake, at any k: the edge stays the fees.
+ *   `revelacionBps` is snapshotted per race at lock so a config change cannot
+ *   desync the top-up from the skim. The pool is held as LOCKED exposure, so
+ *   it is never bankroll for new races (`availableLiquidity`).
  *   NB: `emergencyWithdraw` (owner, paused) zeroes locked exposure, pool included.
  *
  * ## Trust model
@@ -238,7 +247,12 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
 
         // Fees read from the PaymentHandler at lock time — never hardcoded.
         uint256 netPerSeat = (race.betAmount * paymentHandler.getNetStakeBps(address(this))) / MAX_BPS;
-        uint256 houseTopUp = uint256(race.laneCount - k) * netPerSeat;
+        // A house lane matches what each PLAYER leaves in the splittable pot:
+        // the Revelación skim (settleRace) comes off the players' net stakes
+        // only, so the top-up is the post-skim amount. See the header note.
+        uint16 skimBps = revelacionBps;
+        uint256 potPerSeat = netPerSeat - (netPerSeat * skimBps) / MAX_BPS;
+        uint256 houseTopUp = uint256(race.laneCount - k) * potPerSeat;
 
         // Exposure must cover the worst bankroll outflow beyond what this race
         // brought in: a player winning the full pot (houseTopUp) or a gross
@@ -251,6 +265,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         _lockExposure(exposure, 0);
 
         race.houseTopUp = houseTopUp;
+        race.revelacionBps = skimBps;
         race.exposureLocked = exposure;
         race.lockedAt = uint64(block.timestamp);
         race.settleBy = uint64(block.timestamp) + settleDeadlineSeconds;
@@ -287,13 +302,15 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         race.winnerLane = winnerLane;
         race.carrotDataHash = carrotDataHash;
 
-        // Revelación skim first: a slice of the net pot goes into the pool,
-        // reserved as locked exposure so no later lock can spend it.
-        uint256 prize = race.totalNetCollected + race.houseTopUp;
+        // Revelación skim first: the bps snapshotted at lock, taken from the
+        // PLAYERS' net stakes only (the house top-up was already sized to the
+        // post-skim pot), goes into the pool — reserved as locked exposure so
+        // no later lock can spend it.
+        uint256 prize;
         {
-            uint256 contrib = (prize * revelacionBps) / MAX_BPS;
+            uint256 contrib = (race.totalNetCollected * race.revelacionBps) / MAX_BPS;
+            prize = race.totalNetCollected - contrib + race.houseTopUp;
             if (contrib > 0) {
-                prize -= contrib;
                 revelacionPool += contrib;
                 _lockExposure(contrib, 0);
                 emit RevelacionContributed(raceId, contrib, revelacionPool);

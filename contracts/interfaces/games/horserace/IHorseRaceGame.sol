@@ -55,11 +55,12 @@ interface IHorseRaceGame {
         uint256 vrfRandomWord;
         bool vrfFulfilled;
         uint256 totalNetCollected;  // Σ actual net stakes from real seats
-        uint256 houseTopUp;         // (laneCount - playerCount) * netPerSeat (formula)
+        uint256 houseTopUp;         // (laneCount - playerCount) * netPerSeat * (1 - revelacionBps): the house matches the post-skim pot
         uint256 exposureLocked;     // amount locked on BaseGame.lockedExposure for this race
         bytes32 engineConfigHash;   // engine parameter snapshot for this race
         bytes32 carrotDataHash;     // anchored at settle for off-chain verification
         uint8 laneCount;            // field size (players) snapshotted at createRace from `lanes`
+        uint16 revelacionBps;       // Revelación skim (bps of the PLAYERS' net stakes) snapshotted at lockRace
     }
 
     struct Seat {
