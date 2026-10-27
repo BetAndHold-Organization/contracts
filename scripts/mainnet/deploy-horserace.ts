@@ -40,7 +40,8 @@
  * ── Env ─────────────────────────────────────────────────────────────────
  *   CONFIRM_MAINNET=yes                 required
  *   MAINNET_HORSE_OPERATOR              required — the backend's hot wallet (gameOperator)
- *   MAINNET_HORSE_ENGINE_CONFIG_HASH    default: engine v4
+ *   MAINNET_HORSE_CONFIG_ADMIN          optional — may tune tiers / split / Revelación / lanes without the owner
+ *   MAINNET_HORSE_ENGINE_CONFIG_HASH    default: engine v7 — casa al 91 % del pico, zanahoria ×2
  *   MAINNET_HORSE_BET_TIERS             default: "0.1,0.2" (EVA, comma-separated)
  *   MAINNET_HORSE_HOUSE_BPS / _REFERRAL_BPS / _JACKPOT_BPS   default: 150 / 150 / 0
  *   MAINNET_HORSE_SETTLE_DEADLINE_SECONDS   default: 300 (contract default is 900)
@@ -137,7 +138,7 @@ const FEE_RECIPIENT = addressWithDefault(
 // The frontend verifier recomputes this hash — a different value makes every
 // race fail provably-fair verification.
 const DEFAULT_ENGINE_CONFIG_HASH: Hash32 =
-  "0x8043770ebc7ab1e5aace82d064c4d20ad15dbf05d2b01a8e9738997cd04805b7";
+  "0xdef93d8b55b4dee70b75b26fc826428b242f389e33c90519760ac86153e4f0ec";
 
 const HOUSE_BPS = bpsWithDefault("MAINNET_HORSE_HOUSE_BPS", 150);
 const REFERRAL_BPS = bpsWithDefault("MAINNET_HORSE_REFERRAL_BPS", 150);
@@ -372,8 +373,19 @@ async function main() {
     ok(`Tier ${formatEther(tier)} EVA enabled`);
   }
 
+  const CONFIG_ADMIN = (process.env.MAINNET_HORSE_CONFIG_ADMIN ?? "").trim();
+  if (CONFIG_ADMIN) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(CONFIG_ADMIN)) throw new Error("Invalid MAINNET_HORSE_CONFIG_ADMIN");
+    step(`setConfigAdmin(${CONFIG_ADMIN})`);
+    await wait(await game.write.setConfigAdmin([CONFIG_ADMIN as Addr]));
+    ok("Config admin set (tiers / split / Revelación / lanes without the owner)");
+  }
+
   step(`setSettleDeadlineSeconds(${SETTLE_DEADLINE_SECONDS})`);
   await wait(await game.write.setSettleDeadlineSeconds([SETTLE_DEADLINE_SECONDS]));
+  // Revelación defaults come from the constructor (3 % of every pot, pays 1 in 20); shown for the record.
+  const [revPool, revBps, revOdds] = (await game.read.getRevelacion()) as [bigint, number, number];
+  step(`Revelación: ${revBps / 100} % del pozo al pool, lo paga 1 de cada ${revOdds} ganadores (pool ${formatEther(revPool)} EVA) — setRevelacion(bps, odds) para cambiarlo`);
   ok("Settle deadline set");
 
   // ── 4. Funding ───────────────────────────────────────────────────────────

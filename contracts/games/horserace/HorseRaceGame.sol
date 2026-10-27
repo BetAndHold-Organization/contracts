@@ -33,6 +33,25 @@ import {IHorseRaceGame} from "../../interfaces/games/horserace/IHorseRaceGame.so
  *   handler fees when house horses play a symmetric strategy (see the engine's
  *   house heuristic docs) — whatever the split, as long as it sums to 100 %.
  *
+ *   Revelación: `revelacionBps` of the PLAYERS' net stakes is skimmed into
+ *   `revelacionPool` BEFORE the split, and with a 1-in-`revelacionOdds` chance
+ *   per settled race — drawn from keccak(vrfRandomWord, serverSeed, raceId),
+ *   fixed before anyone could steer it — the winning player takes the whole
+ *   pool on top. A house-horse winner leaves the pool untouched. Everything
+ *   skimmed goes back to players sooner or later, so the house edge is
+ *   unchanged; what changes is the variance (the surprise).
+ *   The skim is funded by players ONLY: a house lane tops up the POST-skim
+ *   amount (netPerSeat × (1 − bps)), i.e. exactly what each player leaves in
+ *   the splittable pot. Skimming the house top-up as well would move bankroll
+ *   into a pool only players can win — a negative edge whenever house horses
+ *   run (−5.7 % at k = 1 with 3 % fees). With the fix, a player's expected
+ *   return is netPerSeat × (1 − bps) from the podium plus netPerSeat × bps
+ *   from the pool = the whole net stake, at any k: the edge stays the fees.
+ *   `revelacionBps` is snapshotted per race at lock so a config change cannot
+ *   desync the top-up from the skim. The pool is held as LOCKED exposure, so
+ *   it is never bankroll for new races (`availableLiquidity`).
+ *   NB: `emergencyWithdraw` (owner, paused) zeroes locked exposure, pool included.
+ *
  * ## Trust model
  *
  *   - Speed curves: deterministic from (vrfWord, serverSeed, raceId, lane); the engine
@@ -83,6 +102,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     error InvalidRanking();
     error SettleDeadlineNotPassed(uint64 settleBy);
     error ConfigOutOfBounds();
+    error NotConfigAdmin();
     // InvalidSignature / ExpiredDeadline / InvalidNonce / NoSessionKey / NotOperator
     // come from the inherited SignedActionAuth mixin; LiquidityShortfall from BaseGame;
     // UnauthorizedCaller from VRFGameBase.
@@ -123,10 +143,31 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     /// @notice Game-level ban list (the PaymentHandler blacklist applies on top).
     mapping(address => bool) public bannedPlayers;
 
+    /// @notice Besides the owner, this address may tune the game's NON-custodial
+    ///         configuration (tiers, split, Revelación, lanes, deadlines, bans,
+    ///         engine hash). It can never pause, withdraw, change the handler or
+    ///         the operators — those stay with the owner. Lets the game team run
+    ///         the game day to day without the platform owner's key.
+    address public configAdmin;
+
+    modifier onlyConfigAdmin() {
+        if (msg.sender != owner() && msg.sender != configAdmin) revert NotConfigAdmin();
+        _;
+    }
+
     /// @notice Share of the net pot per finishing place, in bps (index 0 = winner).
     ///         Must sum to at most MAX_BPS; the remainder (and every share landing
     ///         on a house horse) stays in the bankroll.
     uint16[] private _payoutSplitBps;
+
+    /// @notice Share of every net pot skimmed into the Revelación pool (bps).
+    uint16 public revelacionBps = 300;
+    /// @notice 1-in-N chance per settled race that the winner takes the pool (0 = never).
+    uint32 public revelacionOdds = 20;
+    /// @notice Accumulated Revelación pool, in token wei (held as locked exposure).
+    uint256 public revelacionPool;
+    uint16 public constant MAX_REVELACION_BPS = 2_000;
+    uint32 public constant MAX_REVELACION_ODDS = 10_000;
 
     // ═══════════════════════════════════════════════════════════════════════
     // CONSTRUCTOR
@@ -206,7 +247,12 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
 
         // Fees read from the PaymentHandler at lock time — never hardcoded.
         uint256 netPerSeat = (race.betAmount * paymentHandler.getNetStakeBps(address(this))) / MAX_BPS;
-        uint256 houseTopUp = uint256(race.laneCount - k) * netPerSeat;
+        // A house lane matches what each PLAYER leaves in the splittable pot:
+        // the Revelación skim (settleRace) comes off the players' net stakes
+        // only, so the top-up is the post-skim amount. See the header note.
+        uint16 skimBps = revelacionBps;
+        uint256 potPerSeat = netPerSeat - (netPerSeat * skimBps) / MAX_BPS;
+        uint256 houseTopUp = uint256(race.laneCount - k) * potPerSeat;
 
         // Exposure must cover the worst bankroll outflow beyond what this race
         // brought in: a player winning the full pot (houseTopUp) or a gross
@@ -219,6 +265,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         _lockExposure(exposure, 0);
 
         race.houseTopUp = houseTopUp;
+        race.revelacionBps = skimBps;
         race.exposureLocked = exposure;
         race.lockedAt = uint64(block.timestamp);
         race.settleBy = uint64(block.timestamp) + settleDeadlineSeconds;
@@ -255,10 +302,24 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         race.winnerLane = winnerLane;
         race.carrotDataHash = carrotDataHash;
 
+        // Revelación skim first: the bps snapshotted at lock, taken from the
+        // PLAYERS' net stakes only (the house top-up was already sized to the
+        // post-skim pot), goes into the pool — reserved as locked exposure so
+        // no later lock can spend it.
+        uint256 prize;
+        {
+            uint256 contrib = (race.totalNetCollected * race.revelacionBps) / MAX_BPS;
+            prize = race.totalNetCollected - contrib + race.houseTopUp;
+            if (contrib > 0) {
+                revelacionPool += contrib;
+                _lockExposure(contrib, 0);
+                emit RevelacionContributed(raceId, contrib, revelacionPool);
+            }
+        }
+
         // The net pot is split over the finishing order. A place taken by a
         // house horse (or beyond the split) pays nobody: that share, like the
         // whole pot under winner-takes-all, simply stays in the bankroll.
-        uint256 prize = race.totalNetCollected + race.houseTopUp;
         uint256[] memory payouts = new uint256[](race.laneCount);
         uint256 places = _payoutSplitBps.length < ranking.length ? _payoutSplitBps.length : ranking.length;
         for (uint256 place = 0; place < places; place++) {
@@ -268,6 +329,24 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
             if (player != address(0) && share > 0) {
                 payouts[lane] = share;
                 _payPlayer(player, share);
+            }
+        }
+
+        // Revelación draw: the winning PLAYER takes the whole pool 1 time in
+        // `revelacionOdds`. The roll mixes the VRF word (fixed at fulfill) with
+        // the committed server seed, so neither side can steer it.
+        {
+            address winnerPlayer = _seats[raceId][winnerLane].player;
+            if (
+                revelacionOdds > 0 && winnerPlayer != address(0) && revelacionPool > 0 &&
+                uint256(keccak256(abi.encodePacked(race.vrfRandomWord, serverSeed, raceId))) % revelacionOdds == 0
+            ) {
+                uint256 bonus = revelacionPool;
+                revelacionPool = 0;
+                _unlockExposure(bonus, 0);
+                payouts[winnerLane] += bonus;
+                _payPlayer(winnerPlayer, bonus);
+                emit RevelacionWon(raceId, winnerPlayer, bonus);
             }
         }
 
@@ -460,13 +539,19 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     // ADMIN
     // ═══════════════════════════════════════════════════════════════════════
 
-    function setBetTier(uint256 amount, bool allowed) external onlyOwner {
+    /// @notice Owner only: delegate the configuration setters below (zero = owner only).
+    function setConfigAdmin(address admin) external onlyOwner {
+        configAdmin = admin;
+        emit ConfigAdminUpdated(admin);
+    }
+
+    function setBetTier(uint256 amount, bool allowed) external onlyConfigAdmin {
         if (amount == 0) revert ConfigOutOfBounds();
         allowedBetAmounts[amount] = allowed;
         emit BetTierUpdated(amount, allowed);
     }
 
-    function setSettleDeadlineSeconds(uint32 seconds_) external onlyOwner {
+    function setSettleDeadlineSeconds(uint32 seconds_) external onlyConfigAdmin {
         if (seconds_ < MIN_SETTLE_DEADLINE || seconds_ > MAX_SETTLE_DEADLINE) {
             revert ConfigOutOfBounds();
         }
@@ -474,19 +559,19 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         emit SettleDeadlineUpdated(seconds_);
     }
 
-    function setRefundBps(uint16 bps) external onlyOwner {
+    function setRefundBps(uint16 bps) external onlyConfigAdmin {
         if (bps > MAX_BPS) revert ConfigOutOfBounds();
         refundBps = bps;
         emit RefundBpsUpdated(bps);
     }
 
-    function setEngineConfigHash(bytes32 hash) external onlyOwner {
+    function setEngineConfigHash(bytes32 hash) external onlyConfigAdmin {
         if (hash == bytes32(0)) revert ConfigOutOfBounds();
         currentEngineConfigHash = hash;
         emit EngineConfigHashUpdated(hash);
     }
 
-    function setPlayerBanned(address player, bool banned) external onlyOwner {
+    function setPlayerBanned(address player, bool banned) external onlyConfigAdmin {
         bannedPlayers[player] = banned;
         emit PlayerBanStatusUpdated(player, banned);
     }
@@ -494,7 +579,7 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     /// @notice Set how the net pot is split over the finishing order (index 0 =
     ///         winner), in bps. Must sum to at most MAX_BPS and have at most
     ///         MAX_LANES entries. Applies to every race settled from now on.
-    function setPayoutSplitBps(uint16[] calldata bps) external onlyOwner {
+    function setPayoutSplitBps(uint16[] calldata bps) external onlyConfigAdmin {
         if (bps.length == 0 || bps.length > MAX_LANES) revert ConfigOutOfBounds();
         uint256 total;
         for (uint256 i = 0; i < bps.length; i++) total += bps[i];
@@ -504,10 +589,20 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
         emit PayoutSplitUpdated(bps);
     }
 
+    /// @notice Tune the Revelación bonus: `bps` of every net pot feeds the pool
+    ///         (0 = stop skimming; the pool keeps whatever it holds) and the
+    ///         winner takes it 1 time in `odds` (0 = never pays out).
+    function setRevelacion(uint16 bps, uint32 odds) external onlyConfigAdmin {
+        if (bps > MAX_REVELACION_BPS || odds > MAX_REVELACION_ODDS) revert ConfigOutOfBounds();
+        revelacionBps = bps;
+        revelacionOdds = odds;
+        emit RevelacionUpdated(bps, odds);
+    }
+
     /// @notice Set the number of lanes (players) for NEW races. Races already
     ///         created keep their own `laneCount` (snapshotted at createRace), so
     ///         changing this never affects an in-flight race.
-    function setLanes(uint8 count) external onlyOwner {
+    function setLanes(uint8 count) external onlyConfigAdmin {
         if (count < MIN_LANES || count > MAX_LANES) revert ConfigOutOfBounds();
         lanes = count;
         emit LanesUpdated(count);
@@ -530,6 +625,11 @@ contract HorseRaceGame is IHorseRaceGame, PushVRFGame {
     /// @inheritdoc IHorseRaceGame
     function getPayoutSplitBps() external view returns (uint16[] memory) {
         return _payoutSplitBps;
+    }
+
+    /// @inheritdoc IHorseRaceGame
+    function getRevelacion() external view returns (uint256 pool, uint16 bps, uint32 odds) {
+        return (revelacionPool, revelacionBps, revelacionOdds);
     }
 
     /// @inheritdoc IHorseRaceGame
