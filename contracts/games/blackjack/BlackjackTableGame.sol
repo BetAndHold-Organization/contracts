@@ -151,7 +151,7 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
     // ═══════════════════════════════════════════════════════════════════════
 
     /// @notice Open a betting round on a table, publishing the server-seed commit first.
-    function openRound(uint8 tableId, bytes32 commit) external onlyGameOperator whenNotPaused returns (uint256 roundId) {
+    function openRound(uint8 tableId, bytes32 commit) external onlyGameOperator nonReentrant whenNotPaused returns (uint256 roundId) {
         TableConfig memory cfg = tableConfig;
         if (!cfg.enabled) revert GameDisabled();
         if (tableId >= cfg.tables) revert InvalidTable(tableId);
@@ -259,13 +259,14 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
         if (r.status != RoundStatus.Open) revert InvalidRound();
         if (r.seatCount == 0) revert NoSeatsTaken();
 
+        // Close betting before the external call (checks-effects-interactions).
+        r.status = RoundStatus.Locked;
+        r.lockedAt = uint40(block.timestamp);
+
         RandomDeriveLib.Range[] memory ranges = new RandomDeriveLib.Range[](1);
         ranges[0] = RandomDeriveLib.Range({min: 0, max: uint128(BPS)});
         uint256 requestId = randomProvider.requestRandomNumbers(ranges);
-
         r.requestId = requestId;
-        r.status = RoundStatus.Locked;
-        r.lockedAt = uint40(block.timestamp);
         emit RoundLocked(roundId, requestId, r.seatCount);
     }
 
