@@ -18,7 +18,7 @@
  *   4. authHub.setSpendTracker(game, true)
  *   5. authHub.setOperator(operator, true) — the backend relays *For actions itself
  *      (game.setGameOperator is done by the constructor)
- *   6. setTableConfig(N tables × 7 seats, min 0.1 / max 1 EVA, Perfect Pairs max 0.25 EVA,
+ *   6. setTableConfig(N tables × 5 seats, min 0.1 / max 1 EVA, Perfect Pairs max 0.25 EVA,
  *      10 min / 1 h) — same limits as mainnet
  *   7. bankroll EVA + top up operator ETH if needed
  *
@@ -27,9 +27,9 @@
  *
  * Optional env:
  *   BLACKJACK_OPERATOR      — backend wallet (gameOperator + AuthHub operator); default: deployer
- *   BLACKJACK_BANKROLL_EVA  — bankroll in EVA (default 300: two full tables at max bets)
+ *   BLACKJACK_BANKROLL_EVA  — bankroll in EVA (default 300: five full 5-seat tables at max bets)
  *   BLACKJACK_MIN_BET_EVA / BLACKJACK_MAX_BET_EVA / BLACKJACK_MAX_SIDE_BET_EVA (defaults 0.1 / 1 / 0.25)
- *   BLACKJACK_TABLES / BLACKJACK_SEATS (defaults 2 / 7)
+ *   BLACKJACK_TABLES / BLACKJACK_SEATS (defaults 5 / 5; tables open on demand in the backend, this is the cap)
  *
  * Updates deployments/arbitrumSepolia.json (contracts.blackjack) and refreshes
  * the vendored copies in backends/operatorsServer and blackjackBackend if present.
@@ -100,8 +100,8 @@ async function main() {
   const minBet = parseEther(envOr("BLACKJACK_MIN_BET_EVA", "0.1"));
   const maxBet = parseEther(envOr("BLACKJACK_MAX_BET_EVA", "1"));
   const maxSideBet = parseEther(envOr("BLACKJACK_MAX_SIDE_BET_EVA", "0.25"));
-  const tables = Number(envOr("BLACKJACK_TABLES", "2"));
-  const seats = Number(envOr("BLACKJACK_SEATS", "7"));
+  const tables = Number(envOr("BLACKJACK_TABLES", "5"));
+  const seats = Number(envOr("BLACKJACK_SEATS", "5"));
 
   banner("BLACKJACK — Incremental deploy (Arbitrum Sepolia)");
   console.log("Network:        ", networkName, `(chainId ${chainId})`);

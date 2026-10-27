@@ -46,7 +46,7 @@
  *   CONFIRM_MAINNET=yes                 required
  *   MAINNET_BLACKJACK_OPERATOR          required — the backend's hot wallet (gameOperator + AuthHub operator)
  *   MAINNET_BLACKJACK_MIN_BET / _MAX_BET / _MAX_SIDE_BET   default: 0.1 / 1 / 0.25 (EVA)
- *   MAINNET_BLACKJACK_TABLES / _SEATS   default: 1 / 7
+ *   MAINNET_BLACKJACK_TABLES / _SEATS   default: 4 / 5 (tables open on demand; this is the cap)
  *   MAINNET_BLACKJACK_HOUSE_BPS / _REFERRAL_BPS / _JACKPOT_BPS   default: 45 / 45 / 0
  *   MAINNET_BLACKJACK_SETTLE_TIMEOUT_SECONDS   default: 600  (operator may refund a round whose word never came)
  *   MAINNET_BLACKJACK_REFUND_TIMEOUT_SECONDS   default: 3600 (anyone may refund an unsettled round)
@@ -131,8 +131,8 @@ const MAX_BET = evaWithDefault("MAINNET_BLACKJACK_MAX_BET", "1");
 const MAX_SIDE_BET = evaWithDefault("MAINNET_BLACKJACK_MAX_SIDE_BET", "0.25");
 const SETTLE_TIMEOUT = secondsWithDefault("MAINNET_BLACKJACK_SETTLE_TIMEOUT_SECONDS", 600);
 const REFUND_TIMEOUT = secondsWithDefault("MAINNET_BLACKJACK_REFUND_TIMEOUT_SECONDS", 3600);
-const TABLES = secondsWithDefault("MAINNET_BLACKJACK_TABLES", 1);
-const SEATS = secondsWithDefault("MAINNET_BLACKJACK_SEATS", 7);
+const TABLES = secondsWithDefault("MAINNET_BLACKJACK_TABLES", 4);
+const SEATS = secondsWithDefault("MAINNET_BLACKJACK_SEATS", 5);
 
 const CONSUMER_RANGE_LIMIT = 1n; // one random word per round
 
