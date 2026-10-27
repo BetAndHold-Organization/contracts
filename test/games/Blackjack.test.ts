@@ -2,6 +2,7 @@ import { describe, it, before } from "node:test";
 import { expect } from "chai";
 import { network } from "hardhat";
 import { encodeFunctionData, keccak256, toHex, parseEther, toFunctionSelector, type Hex } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 import { ZERO_ADDRESS, ONE_EVA, HUNDRED_EVA, ONE_THOUSAND_EVA } from "../helpers/constants.js";
 import { expectRevert as expectRevertRaw } from "../helpers/utils.js";
@@ -211,11 +212,11 @@ async function signConfirm(ctx: Ctx, playerIdx: number, signerIdx: number, reque
 }
 
 /** Direct startRound from the player's wallet. Returns the round id (the VRF requestId). */
-async function startDirect(ctx: Ctx, playerIdx: number, opts: { stake?: bigint; sideBet?: bigint; serverSeed?: Hex } = {}) {
+async function startDirect(ctx: Ctx, playerIdx: number, opts: { stake?: bigint; sideBet?: bigint; serverSeed?: Hex; actionSigner?: `0x${string}` } = {}) {
   const serverSeed = opts.serverSeed ?? freshServerSeed();
   const commit = commitFor(serverSeed, addr(playerIdx));
   const g = await gameAs(ctx, playerIdx);
-  await g.write.startRound([opts.stake ?? STAKE, opts.sideBet ?? 0n, ZERO_ADDRESS, commit]);
+  await g.write.startRound([opts.stake ?? STAKE, opts.sideBet ?? 0n, ZERO_ADDRESS, commit, opts.actionSigner ?? ZERO_ADDRESS]);
   const requestId = (await ctx.game.read.activeRoundOf([addr(playerIdx)])) as bigint;
   return { requestId, serverSeed, commit, stake: opts.stake ?? STAKE, sideBet: opts.sideBet ?? 0n };
 }
@@ -296,7 +297,7 @@ describe("BlackjackGame — construction & admin", () => {
     const ctx = await setup();
     await ctx.game.write.pause();
     const g = await gameAs(ctx, W.playerA);
-    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, keccak256("0x01")]), "Pausable: paused");
+    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, keccak256("0x01"), ZERO_ADDRESS]), "Pausable: paused");
     await ctx.game.write.emergencyWithdraw([addr(W.deployer), 0n]);
     expect((await ctx.token.read.balanceOf([ctx.game.address])) as bigint).to.equal(0n);
     await ctx.game.write.unpause();
@@ -336,23 +337,23 @@ describe("BlackjackGame — startRound", () => {
     const ctx = await setup();
     const g = await gameAs(ctx, W.playerA);
     const commit = keccak256("0x1234");
-    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, `0x${"0".repeat(64)}`]), "InvalidCommit");
-    await expectRevert(g.write.startRound([TABLE.minBet - 1n, 0n, ZERO_ADDRESS, commit]), "BetTooLow");
-    await expectRevert(g.write.startRound([TABLE.maxBet + 1n, 0n, ZERO_ADDRESS, commit]), "BetTooHigh");
-    await expectRevert(g.write.startRound([STAKE, TABLE.maxSideBet + 1n, ZERO_ADDRESS, commit]), "SideBetTooHigh");
+    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, `0x${"0".repeat(64)}`, ZERO_ADDRESS]), "InvalidCommit");
+    await expectRevert(g.write.startRound([TABLE.minBet - 1n, 0n, ZERO_ADDRESS, commit, ZERO_ADDRESS]), "BetTooLow");
+    await expectRevert(g.write.startRound([TABLE.maxBet + 1n, 0n, ZERO_ADDRESS, commit, ZERO_ADDRESS]), "BetTooHigh");
+    await expectRevert(g.write.startRound([STAKE, TABLE.maxSideBet + 1n, ZERO_ADDRESS, commit, ZERO_ADDRESS]), "SideBetTooHigh");
     await startDirect(ctx, W.playerA);
-    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, commit]), "ActiveRoundExists");
+    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, commit, ZERO_ADDRESS]), "ActiveRoundExists");
     await ctx.game.write.setTableConfig([{ ...TABLE, enabled: false }]);
     const gB = await gameAs(ctx, W.playerB);
-    await expectRevert(gB.write.startRound([STAKE, 0n, ZERO_ADDRESS, commit]), "GameDisabled");
+    await expectRevert(gB.write.startRound([STAKE, 0n, ZERO_ADDRESS, commit, ZERO_ADDRESS]), "GameDisabled");
   });
 
   it("reverts on a misconfigured payout target and on a liquidity shortfall", async () => {
     const ctx = await setup({ bankroll: 0n });
     const g = await gameAs(ctx, W.playerA);
-    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, keccak256("0x01")]), "LiquidityShortfall");
+    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, keccak256("0x01"), ZERO_ADDRESS]), "LiquidityShortfall");
     await ctx.handler.write.updateGameConfig([ctx.game.address, addr(W.other), addr(W.feeRecipient), HOUSE_BPS, REFERRAL_BPS, 0]);
-    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, keccak256("0x01")]), "PaymentHandlerMisconfigured");
+    await expectRevert(g.write.startRound([STAKE, 0n, ZERO_ADDRESS, keccak256("0x01"), ZERO_ADDRESS]), "PaymentHandlerMisconfigured");
   });
 
   it("startRoundFor: session-key signature, spend cap, nonce, deadline, game binding, operator gate", async () => {
@@ -499,6 +500,46 @@ describe("BlackjackGame — settle", () => {
     const good = await signConfirm(ctx, W.playerA, W.sessionA, round.requestId, actions);
     await expectRevert(settleAs(ctx, W.other, round.requestId, round.serverSeed, actions, good), "NotGameOperator");
     await settleAs(ctx, W.operator, round.requestId, round.serverSeed, actions, good);
+  });
+
+  it("accepts the one-round action signer registered in startRound, for that round only", async () => {
+    const ctx = await setup();
+    const throwaway = privateKeyToAccount(generatePrivateKey());
+    const round = await startDirect(ctx, W.playerA, { actionSigner: throwaway.address });
+    expect((await ctx.game.read.actionSignerOf([round.requestId])).toLowerCase()).to.equal(throwaway.address.toLowerCase());
+    const set = await gameEvents(ctx, "ActionSignerSet");
+    expect(set).to.have.length(1);
+    expect(set[0].args.requestId).to.equal(round.requestId);
+    expect(set[0].args.player.toLowerCase()).to.equal(addr(W.playerA).toLowerCase());
+    expect(set[0].args.signer.toLowerCase()).to.equal(throwaway.address.toLowerCase());
+    const { run } = await dealMatching(ctx, round, plainStand);
+    run.apply(Action.STAND);
+    const actions = run.actions;
+    const confirmBy = (account: typeof throwaway, requestId: bigint, acts: readonly ActionCode[]) =>
+      account.signTypedData({
+        domain: domain(ctx),
+        types: {
+          ConfirmRound: [
+            { name: "game", type: "address" },
+            { name: "player", type: "address" },
+            { name: "requestId", type: "uint256" },
+            { name: "actionsHash", type: "bytes32" },
+          ],
+        },
+        primaryType: "ConfirmRound",
+        message: { game: ctx.game.address, player: addr(W.playerA), requestId, actionsHash: actionsHash(acts) },
+      });
+    const tampered = await confirmBy(throwaway, round.requestId, [Action.HIT]);
+    await expectRevert(settleAs(ctx, W.operator, round.requestId, round.serverSeed, actions, tampered), "InvalidPlayerSignature");
+    await settleAs(ctx, W.operator, round.requestId, round.serverSeed, actions, await confirmBy(throwaway, round.requestId, actions));
+
+    // The next round registered no signer: the old throwaway key is worthless there.
+    const next = await startDirect(ctx, W.playerA);
+    expect(await ctx.game.read.actionSignerOf([next.requestId])).to.equal(ZERO_ADDRESS);
+    const { run: run2 } = await dealMatching(ctx, next, plainStand);
+    run2.apply(Action.STAND);
+    const stale = await confirmBy(throwaway, next.requestId, run2.actions);
+    await expectRevert(settleAs(ctx, W.operator, next.requestId, next.serverSeed, run2.actions, stale), "InvalidPlayerSignature");
   });
 
   it("requires the VRF word and the committed server seed", async () => {

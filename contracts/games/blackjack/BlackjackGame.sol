@@ -22,7 +22,10 @@ import {BlackjackEngineLib} from "./libraries/BlackjackEngineLib.sol";
  *           4. Extra money (double / split / insurance) is pulled on-chain with
  *              `addWager` before the corresponding card is dealt.
  *           5. The player signs the action log (EIP-712 ConfirmRound) and the
- *              operator settles: the contract checks the commit, the VRF word and
+ *              operator settles. The signature may come from the wallet, from the
+ *              player's AuthHub session key, or from a one-round "action signer"
+ *              key the player registered in the startRound tx itself (a throwaway
+ *              key the browser holds, so the log is signed without a wallet popup): the contract checks the commit, the VRF word and
  *              the signature, REPLAYS the round itself and pays. The operator can
  *              never misreport a payout — only refuse to settle, which the timeouts
  *              (resolveAbandoned / cancelExpired) bound.
@@ -79,6 +82,9 @@ contract BlackjackGame is PullVRFGame, IBlackjackGame {
     TableConfig public tableConfig;
     mapping(uint256 => Round) internal _rounds;
     mapping(address => uint256) public activeRoundOf;
+    /// @notice Optional per-round key allowed to sign that round's ConfirmRound,
+    ///         registered by the player in `startRound`. Zero when none.
+    mapping(uint256 => address) public actionSignerOf;
 
     // ═══════════════════════════════════════════════════════════════════════
     //                              CONSTRUCTOR
@@ -126,13 +132,23 @@ contract BlackjackGame is PullVRFGame, IBlackjackGame {
     //                              START ROUND
     // ═══════════════════════════════════════════════════════════════════════
 
+    /**
+     * @param actionSigner Optional throwaway key (zero for none) that may sign this
+     *        round's ConfirmRound on the player's behalf. Only the player can set it,
+     *        because only the player sends this tx; it is valid for this round only.
+     */
     function startRound(
         uint128 stake,
         uint128 sideBet,
         address potentialReferrer,
-        bytes32 commit
+        bytes32 commit,
+        address actionSigner
     ) external nonReentrant returns (uint256 requestId) {
-        return _startRoundInternal(msg.sender, stake, sideBet, potentialReferrer, commit);
+        requestId = _startRoundInternal(msg.sender, stake, sideBet, potentialReferrer, commit);
+        if (actionSigner != address(0)) {
+            actionSignerOf[requestId] = actionSigner;
+            emit ActionSignerSet(requestId, msg.sender, actionSigner);
+        }
     }
 
     function startRoundFor(
@@ -284,7 +300,9 @@ contract BlackjackGame is PullVRFGame, IBlackjackGame {
             abi.encode(CONFIRM_ROUND_TYPEHASH, address(this), r.player, requestId, keccak256(actions))
         );
         address signer = _hashTypedDataV4(structHash).recover(playerSignature);
-        if (signer != r.player && signer != authHub.sessionKeyOf(r.player)) revert InvalidPlayerSignature();
+        if (signer != r.player && signer != actionSignerOf[requestId] && signer != authHub.sessionKeyOf(r.player)) {
+            revert InvalidPlayerSignature();
+        }
 
         _settleInternal(requestId, r, serverSeed, actions, false);
     }

@@ -62,6 +62,9 @@ interface IBlackjackGame {
         uint256 locked
     );
 
+    /// @notice The player registered a one-round key allowed to sign this round's ConfirmRound.
+    event ActionSignerSet(uint256 indexed requestId, address indexed player, address signer);
+
     event WagerAdded(
         uint256 indexed requestId,
         address indexed player,
