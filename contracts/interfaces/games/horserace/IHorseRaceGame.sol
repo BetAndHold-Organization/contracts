@@ -55,11 +55,12 @@ interface IHorseRaceGame {
         uint256 vrfRandomWord;
         bool vrfFulfilled;
         uint256 totalNetCollected;  // Σ actual net stakes from real seats
-        uint256 houseTopUp;         // (laneCount - playerCount) * netPerSeat (formula)
+        uint256 houseTopUp;         // (laneCount - playerCount) * netPerSeat * (1 - revelacionBps): the house matches the post-skim pot
         uint256 exposureLocked;     // amount locked on BaseGame.lockedExposure for this race
         bytes32 engineConfigHash;   // engine parameter snapshot for this race
         bytes32 carrotDataHash;     // anchored at settle for off-chain verification
         uint8 laneCount;            // field size (players) snapshotted at createRace from `lanes`
+        uint16 revelacionBps;       // Revelación skim (bps of the PLAYERS' net stakes) snapshotted at lockRace
     }
 
     struct Seat {
@@ -114,6 +115,12 @@ interface IHorseRaceGame {
 
     event PayoutSplitUpdated(uint16[] bps);
 
+    /// @notice A slice of a settled race's net pot went into the Revelación pool.
+    event RevelacionContributed(uint256 indexed raceId, uint256 amount, uint256 pool);
+    /// @notice The race winner also took the whole Revelación pool.
+    event RevelacionWon(uint256 indexed raceId, address indexed winner, uint256 amount);
+    event RevelacionUpdated(uint16 bps, uint32 odds);
+
     event RaceRefunded(uint256 indexed raceId, bytes32 reason);
 
     event RaceCancelled(uint256 indexed raceId);
@@ -129,6 +136,9 @@ interface IHorseRaceGame {
     event PlayerBanStatusUpdated(address indexed player, bool banned);
 
     event LanesUpdated(uint8 lanes);
+
+    /// @notice The address (besides the owner) allowed to tune the non-custodial config.
+    event ConfigAdminUpdated(address indexed admin);
 
     // ═══════════════════════════════════════════════════════════════════════
     // OPERATOR LIFECYCLE
@@ -205,4 +215,9 @@ interface IHorseRaceGame {
     ///         (index 0 = winner). Places past the array length get nothing;
     ///         a house horse on a paid place keeps its share in the bankroll.
     function getPayoutSplitBps() external view returns (uint16[] memory);
+
+    /// @notice The Revelación bonus: `bps` of every net pot accumulates in
+    ///         `pool`; with a 1-in-`odds` chance per settled race (drawn from
+    ///         the race's VRF word) the winning PLAYER also takes the whole pool.
+    function getRevelacion() external view returns (uint256 pool, uint16 bps, uint32 odds);
 }

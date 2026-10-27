@@ -463,6 +463,38 @@ BetSettled:       NOT EMITTED — payouts (payWinner) aren't bet-linked on-chain
 
 ---
 
+### HorseRaceGame
+
+```
+BetPlaced.data:   abi.decode(data, (uint256 raceId, bytes32 roomId, uint8 lane, uint256 netStake))
+BetSettled.data:  abi.decode(data, (uint256 raceId, uint8 winnerLane, uint8 lane, bytes32 serverSeed, bytes32 carrotDataHash))
+```
+
+`BetSettled.payout` is everything that bet received: its podium share
+(`payoutSplitBps`, default 60/30/10 of the net pot after the Revelación skim;
+the skim comes off the players' net stakes only and house lanes top up the
+post-skim amount, so the edge stays the fees at any field size)
+plus the whole Revelación pool when the draw hit that race (`RevelacionWon`).
+`RacePodium(raceId, ranking, payouts)` lists the finishing order and the
+per-lane payouts; `RaceSettled.prize` is the pot that was split (post-skim).
+
+### HorseRaceBook ("bet on a horse" mode)
+
+```
+BetPlaced.data:   abi.decode(data, (uint256 raceId, bytes32 roomId, uint8 lane, uint256 netStake))
+BetSettled.data:  abi.decode(data, (uint256 raceId, uint8 winnerLane, uint8 lane, bytes32 serverSeed, bytes32 carrotDataHash))
+```
+
+Same shapes as HorseRaceGame, one bet per `BetPlaced` (a player may place
+several; every horse is a house horse, each with its own win probability under
+the anchored engine config). Fixed odds, win only: `BetSettled.payout` =
+`netStake × laneOddsBps[lane] / 1e4 × (1e4 − revelacionBps) / 1e4` when the
+lane won (`getRaceOdds(raceId)` is the table the race opened with), 0
+otherwise, plus the bet's pro-rata share of the Revelación pool when the draw
+hit (`RevelacionWon(raceId, winnerLane, amount)` + one `RevelacionShare` per bet).
+`RacePodium(raceId, ranking, laneTotals)` carries the net stake that rode on
+each lane; `RaceSettled(raceId, winnerLane, totalNet, totalPaid, …)`.
+
 ## 11. Where to look next
 
 - `contracts/games/Plinko.sol` — canonical PushVRFGame example.
