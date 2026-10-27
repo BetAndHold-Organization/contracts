@@ -13,7 +13,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_ENGINE_CONFIG_HASH = "0xa54b76abca9c96849a206f91942b545b0f1eb732d3cfdcead58ce1e6f8e6037e" as const;
+const DEFAULT_ENGINE_CONFIG_HASH = "0xdef93d8b55b4dee70b75b26fc826428b242f389e33c90519760ac86153e4f0ec" as const;
 
 async function main() {
   const conn = await network.connect();
