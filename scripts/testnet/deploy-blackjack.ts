@@ -16,7 +16,7 @@
  *   4. authHub.setSpendTracker(game, true)
  *   5. authHub.setOperator(operator, true) — the backend relays *For actions itself
  *      (game.setGameOperator is done by the constructor)
- *   6. setTableConfig(min 0.1 / max 2 EVA, Perfect Pairs max 0.5 EVA, 10 min / 1 h)
+ *   6. setTableConfig(min 0.1 / max 1 EVA, Perfect Pairs max 0.25 EVA, 10 min / 1 h) — same as mainnet
  *   7. bankroll EVA + top up operator ETH if needed
  *
  * RandomProvider is already a consumer of the VRF subscription (per-provider,
@@ -25,7 +25,7 @@
  * Optional env:
  *   BLACKJACK_OPERATOR      — backend wallet (gameOperator + AuthHub operator); default: deployer
  *   BLACKJACK_BANKROLL_EVA  — bankroll in EVA (default 200)
- *   BLACKJACK_MIN_BET_EVA / BLACKJACK_MAX_BET_EVA / BLACKJACK_MAX_SIDE_BET_EVA (defaults 0.1 / 2 / 0.5)
+ *   BLACKJACK_MIN_BET_EVA / BLACKJACK_MAX_BET_EVA / BLACKJACK_MAX_SIDE_BET_EVA (defaults 0.1 / 1 / 0.25)
  *
  * Updates deployments/arbitrumSepolia.json (contracts.blackjack) and refreshes
  * the vendored copies in backends/operatorsServer and blackjackBackend if present.
@@ -94,8 +94,8 @@ async function main() {
   const operator = envOr("BLACKJACK_OPERATOR", deployer) as Addr;
   const bankrollEva = parseEther(envOr("BLACKJACK_BANKROLL_EVA", DEFAULT_BANKROLL_EVA));
   const minBet = parseEther(envOr("BLACKJACK_MIN_BET_EVA", "0.1"));
-  const maxBet = parseEther(envOr("BLACKJACK_MAX_BET_EVA", "2"));
-  const maxSideBet = parseEther(envOr("BLACKJACK_MAX_SIDE_BET_EVA", "0.5"));
+  const maxBet = parseEther(envOr("BLACKJACK_MAX_BET_EVA", "1"));
+  const maxSideBet = parseEther(envOr("BLACKJACK_MAX_SIDE_BET_EVA", "0.25"));
 
   banner("BLACKJACK — Incremental deploy (Arbitrum Sepolia)");
   console.log("Network:        ", networkName, `(chainId ${chainId})`);
@@ -163,7 +163,7 @@ async function main() {
   } else {
     step(`Bankroll: transferring ${formatEther(bankroll)} EVA to the game`);
     await waitTx(await token.write.transfer([game.address, bankroll]));
-    ok(`Bankroll: ${formatEther(bankroll)} EVA (max exposure per round at 2 EVA + 0.5 side ≈ 24 EVA)`);
+    ok(`Bankroll: ${formatEther(bankroll)} EVA (max exposure per round at 1 EVA + 0.25 side ≈ 12 EVA)`);
   }
 
   if (operator.toLowerCase() !== deployer.toLowerCase()) {
