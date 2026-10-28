@@ -187,7 +187,7 @@ describe("BlackjackTableGame — admin & open", () => {
       { minBet: 0n },
       { maxBet: TABLE.minBet - 1n },
       { tables: 0 },
-      { tables: 17 },
+      { tables: 65 },
       { seats: 0 },
       { seats: 8 },
       { settleTimeout: 0 },
@@ -195,9 +195,31 @@ describe("BlackjackTableGame — admin & open", () => {
     ];
     for (const b of bad) await expectRevert(ctx.game.write.setTableConfig([{ ...TABLE, ...b }]), "InvalidConfig");
     const other = await gameAs(ctx, W.other);
-    await expectRevert(other.write.setTableConfig([TABLE]), "Ownable: caller is not the owner");
+    await expectRevert(other.write.setTableConfig([TABLE]), "NotConfigManager");
     const ev = await events(ctx, "TableConfigUpdated");
     expect(Number(ev[0].args.tables)).to.equal(2);
+    expect(Number(await ctx.game.read.MAX_TABLES())).to.equal(64);
+    await ctx.game.write.setTableConfig([{ ...TABLE, tables: 64 }]);
+  });
+
+  it("a config manager changes the table config, and nothing else", async () => {
+    const ctx = await setup();
+    const other = await gameAs(ctx, W.other);
+    await expectRevert(other.write.setConfigManager([addr(W.other), true]), "Ownable: caller is not the owner");
+    await expectRevert(ctx.game.write.setConfigManager([ZERO_ADDRESS, true]), "account");
+    await ctx.game.write.setConfigManager([addr(W.other), true]);
+    expect(await ctx.game.read.configManagers([addr(W.other)])).to.equal(true);
+    await other.write.setTableConfig([{ ...TABLE, tables: 20, maxBet: parseEther("2") }]);
+    expect(Number(((await ctx.game.read.tableConfig()) as any)[1])).to.equal(20);
+    await expectRevert(other.write.setTableConfig([{ ...TABLE, tables: 0 }]), "InvalidConfig");
+    // no funds, no roles
+    await expectRevert(other.write.withdrawHouseFunds([addr(W.other), 1n]), "Ownable: caller is not the owner");
+    await expectRevert(other.write.setGameOperator([addr(W.other), true]), "Ownable: caller is not the owner");
+    await expectRevert(other.write.setConfigManager([addr(W.playerA), true]), "Ownable: caller is not the owner");
+    await ctx.game.write.setConfigManager([addr(W.other), false]);
+    await expectRevert(other.write.setTableConfig([TABLE]), "NotConfigManager");
+    const ev = await events(ctx, "ConfigManagerSet");
+    expect(ev.map((e) => e.args.status)).to.deep.equal([true, false]);
   });
 
   it("opens one round per table, only the game operator, only with a commit", async () => {
@@ -249,7 +271,8 @@ describe("BlackjackTableGame — bets", () => {
     const r = (await ctx.game.read.getRound([roundId])) as any;
     expect(Number(r.seatMask)).to.equal(0b1001);
     expect(Number(r.seatCount)).to.equal(2);
-    expect(r.locked).to.equal((STAKE * 5n) / 2n + parseEther("0.1") * 26n + (STAKE * 5n) / 2n);
+    // the side bet reserves only its own refund: its wins come from the free bankroll at settle
+    expect(r.locked).to.equal((STAKE * 5n) / 2n + parseEther("0.1") + (STAKE * 5n) / 2n);
     const seat = (await ctx.game.read.getSeat([roundId, 3])) as any;
     expect(seat.player.toLowerCase()).to.equal(addr(W.playerA).toLowerCase());
     expect(seat.actionSigner.toLowerCase()).to.equal(key.address.toLowerCase());
@@ -571,6 +594,31 @@ describe("BlackjackTableGame — settle", () => {
     expect(after[1]! - before[1]!).to.equal(expected.seats[1]!.payout);
     expect(expected.seats[0]!.hands).to.have.length(2);
     expect(expected.seats[1]!.hands[0]!.bet).to.equal(2n * STAKE);
+  });
+
+  it("Perfect Pairs wins are paid from the free bankroll, never from other rounds' reserve", async () => {
+    // a thin bankroll: the main game fits its lock, a perfect pair at 25:1 does not
+    const ctx = await setup({ bankroll: 4n * ONE_EVA });
+    const side = parseEther("0.25");
+    const { roundId, serverSeed } = await openRound(ctx);
+    await bet(ctx, W.playerA, roundId, 0, { side });
+    const inputs: SeatInput[] = [{ seat: 0, stake: STAKE, sideBet: side }];
+    const { seed } = await lockAndDeal(ctx, roundId, serverSeed, inputs, (r) => r.phase === "playing" && r.seats[0]!.sideBetOutcome === "perfect");
+    const run = freshRun(seed, inputs);
+    const expected = playOut(run);
+    expect(expected.seats[0]!.sideBetPayout).to.equal(side * 26n);
+    const ps = await plays(ctx, roundId, run, new Map([[0, { signer: signerOf(W.playerA), player: addr(W.playerA) }]]));
+    const op = await gameAs(ctx, W.operator);
+    // another table's round keeps its reserve out of reach
+    const other = await openRound(ctx, 1);
+    await bet(ctx, W.playerB, other.roundId, 0);
+    await expectRevert(op.write.settle([roundId, serverSeed, ps]), "LiquidityShortfall");
+    // topping up the bankroll lets the same settle through
+    await ctx.token.write.transfer([ctx.game.address, 10n * ONE_EVA]);
+    const before = await balanceOf(ctx, addr(W.playerA));
+    await op.write.settle([roundId, serverSeed, ps]);
+    expect((await balanceOf(ctx, addr(W.playerA))) - before).to.equal(expected.seats[0]!.payout);
+    expect(await ctx.game.read.lockedExposure()).to.equal((STAKE * 5n) / 2n);
   });
 
   it("ace up with a dealer natural: insurance pays 2:1, an unused paid wager is refunded, naturals need no log", async () => {

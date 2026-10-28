@@ -56,7 +56,8 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
 
     uint8 public constant RULES_VERSION = BlackjackTableLib.RULES_VERSION;
     uint8 public constant MAX_SEATS = BlackjackTableLib.MAX_SEATS;
-    uint8 public constant MAX_TABLES = 16;
+    /// @dev Tables open on demand; the bankroll (exposure lock), not this cap, is the real limit.
+    uint8 public constant MAX_TABLES = 64;
     uint16 internal constant BPS = 10_000;
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -87,6 +88,7 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
     error PayoutExceedsLock(uint256 payout, uint256 locked);
     error TimeoutNotReached();
     error InsufficientFreeLiquidity(uint256 available, uint256 requested);
+    error NotConfigManager();
 
     // ═══════════════════════════════════════════════════════════════════════
     //                              STATE
@@ -100,6 +102,9 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
     mapping(uint8 => uint256) public currentRoundOf;
     /// @notice The round a player is seated in (0 = none). One seat at a time.
     mapping(address => uint256) public activeRoundOf;
+    /// @notice Accounts that may change the table config (limits, tables, seats, timeouts,
+    ///         enabled) without being the owner. They cannot move funds or change roles.
+    mapping(address => bool) public configManagers;
 
     // ═══════════════════════════════════════════════════════════════════════
     //                              CONSTRUCTOR
@@ -128,7 +133,15 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
     //                              ADMIN
     // ═══════════════════════════════════════════════════════════════════════
 
-    function setTableConfig(TableConfig calldata cfg) external onlyOwner {
+    function setConfigManager(address account, bool status) external onlyOwner {
+        require(account != address(0), "account");
+        configManagers[account] = status;
+        emit ConfigManagerSet(account, status);
+    }
+
+    /// @notice Owner or a config manager.
+    function setTableConfig(TableConfig calldata cfg) external {
+        if (msg.sender != owner() && !configManagers[msg.sender]) revert NotConfigManager();
         if (cfg.minBet == 0 || cfg.maxBet < cfg.minBet) revert InvalidConfig();
         if (cfg.tables == 0 || cfg.tables > MAX_TABLES || cfg.seats == 0 || cfg.seats > MAX_SEATS) revert InvalidConfig();
         if (cfg.settleTimeout == 0 || cfg.refundTimeout < cfg.settleTimeout) revert InvalidConfig();
@@ -230,8 +243,10 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
         uint256 netStake = _collectAndProcessBet(player, potentialReferrer, gross);
         require(netStake > 0, "net zero");
 
-        // Natural pays 3:2 on top of the returned stake; Perfect Pairs 25:1 plus the side bet.
-        uint256 locked = (uint256(stake) * 5) / 2 + uint256(sideBet) * 26;
+        // Natural pays 3:2 on top of the returned stake. The side bet only reserves its own
+        // refund: Perfect Pairs wins are paid from the free bankroll at settle (every seat
+        // hitting a pair at once is not a case worth locking the bankroll for).
+        uint256 locked = (uint256(stake) * 5) / 2 + uint256(sideBet);
         _lockExposure(locked, 0);
         r.locked += locked;
         r.seatMask |= uint8(1) << seat;
@@ -349,7 +364,17 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
         Round memory r = _rounds[roundId];
         if (r.status != RoundStatus.Locked) revert InvalidRound();
         (BlackjackTableLib.Result memory res, uint256 vrfWord) = _replay(roundId, r, serverSeed, plays);
-        if (res.totalPayout > r.locked) revert PayoutExceedsLock(res.totalPayout, r.locked);
+        // The main game always fits its lock; Perfect Pairs wins come on top, out of the free
+        // bankroll — never out of what other live rounds have reserved.
+        uint256 sidePayout = 0;
+        for (uint256 i = 0; i < res.seats.length; i++) sidePayout += res.seats[i].sideBetPayout;
+        if (res.totalPayout - sidePayout > r.locked) revert PayoutExceedsLock(res.totalPayout - sidePayout, r.locked);
+        if (res.totalPayout > r.locked) {
+            uint256 balance = evaToken.balanceOf(address(this));
+            uint256 reservedByOthers = lockedExposure - r.locked;
+            uint256 available = balance > reservedByOthers ? balance - reservedByOthers : 0;
+            if (res.totalPayout > available) revert LiquidityShortfall(available, res.totalPayout);
+        }
 
         _rounds[roundId].status = RoundStatus.Settled;
         currentRoundOf[r.tableId] = 0;

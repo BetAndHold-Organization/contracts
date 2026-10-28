@@ -19,7 +19,7 @@
  *   5. authHub.setOperator(operator, true) — the backend relays *For actions itself
  *      (game.setGameOperator is done by the constructor)
  *   6. setTableConfig(N tables × 5 seats, min 0.1 / max 1 EVA, Perfect Pairs max 0.25 EVA,
- *      10 min / 1 h) — same limits as mainnet
+ *      10 min / 1 h) — same limits as mainnet; optional setConfigManager
  *   7. bankroll EVA + top up operator ETH if needed
  *
  * RandomProvider is already a consumer of the VRF subscription (per-provider,
@@ -27,9 +27,11 @@
  *
  * Optional env:
  *   BLACKJACK_OPERATOR      — backend wallet (gameOperator + AuthHub operator); default: deployer
- *   BLACKJACK_BANKROLL_EVA  — bankroll in EVA (default 300: five full 5-seat tables at max bets)
+ *   BLACKJACK_BANKROLL_EVA  — bankroll in EVA (default 300: ten full 5-seat tables at max bets, worst case)
  *   BLACKJACK_MIN_BET_EVA / BLACKJACK_MAX_BET_EVA / BLACKJACK_MAX_SIDE_BET_EVA (defaults 0.1 / 1 / 0.25)
- *   BLACKJACK_TABLES / BLACKJACK_SEATS (defaults 5 / 5; tables open on demand in the backend, this is the cap)
+ *   BLACKJACK_TABLES / BLACKJACK_SEATS (defaults 64 / 5; tables open on demand in the backend, this is the cap —
+ *     the bankroll is the real limit: a bet that the free bankroll cannot cover reverts)
+ *   BLACKJACK_CONFIG_MANAGER — account that may change the table config without being the owner
  *
  * Updates deployments/arbitrumSepolia.json (contracts.blackjack) and refreshes
  * the vendored copies in backends/operatorsServer and blackjackBackend if present.
@@ -100,7 +102,8 @@ async function main() {
   const minBet = parseEther(envOr("BLACKJACK_MIN_BET_EVA", "0.1"));
   const maxBet = parseEther(envOr("BLACKJACK_MAX_BET_EVA", "1"));
   const maxSideBet = parseEther(envOr("BLACKJACK_MAX_SIDE_BET_EVA", "0.25"));
-  const tables = Number(envOr("BLACKJACK_TABLES", "5"));
+  const tables = Number(envOr("BLACKJACK_TABLES", "64"));
+  const configManager = envOr("BLACKJACK_CONFIG_MANAGER", "") as Addr | "";
   const seats = Number(envOr("BLACKJACK_SEATS", "5"));
 
   banner("BLACKJACK — Incremental deploy (Arbitrum Sepolia)");
@@ -159,6 +162,11 @@ async function main() {
     ]),
   );
   ok(`${tables} tables × ${seats} seats enabled: ${formatEther(minBet)}–${formatEther(maxBet)} EVA, side ≤ ${formatEther(maxSideBet)} EVA, ${SETTLE_TIMEOUT}s / ${REFUND_TIMEOUT}s`);
+  if (configManager) {
+    step(`setConfigManager(${configManager}, true)`);
+    await waitTx(await game.write.setConfigManager([configManager, true]));
+    ok("Config manager set (table config only: no funds, no roles)");
+  }
 
   banner("4. Funding");
   const token = await viem.getContractAt("EverValueCoin", core.evaToken);
@@ -169,7 +177,8 @@ async function main() {
   } else {
     step(`Bankroll: transferring ${formatEther(bankroll)} EVA to the game`);
     await waitTx(await token.write.transfer([game.address, bankroll]));
-    ok(`Bankroll: ${formatEther(bankroll)} EVA (max exposure per seat at 1 EVA + 0.25 side ≈ 12 EVA; a full table ≈ 84 EVA)`);
+    const perTable = ((maxBet * 55n) / 10n + maxSideBet) * BigInt(seats);
+    ok(`Bankroll: ${formatEther(bankroll)} EVA (worst case ${formatEther(perTable)} EVA per full table; Perfect Pairs wins come from the free bankroll)`);
   }
 
   if (operator.toLowerCase() !== deployer.toLowerCase()) {

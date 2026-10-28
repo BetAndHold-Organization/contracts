@@ -24,9 +24,11 @@
  * Table 0.1 – 1 EVA, Perfect Pairs ≤ 0.25 EVA: little money at stake while the
  * game ships unlisted (0.1 EVA is the platform minimum bet). Raise later with
  * setTableConfig — the backend re-reads the table from the chain on restart.
- * Worst-case bankroll outflow per SEAT at the top of the table:
- * 5.5 × maxBet + 26 × maxSideBet (double or split, two hands, insurance, suited pair);
- * a full table is seven times that.
+ * Worst-case reservation per SEAT at the top of the table: 5.5 × maxBet + maxSideBet
+ * (double or split, two hands, insurance; the side bet reserves only its refund —
+ * Perfect Pairs wins are paid from the free bankroll at settle). Tables open on
+ * demand: the bankroll, not the table cap, limits how many play at once (a bet
+ * the free bankroll cannot cover reverts).
  *
  * ── Fee split ───────────────────────────────────────────────────────────
  * Defaults to 0.45 % house / 0.45 % referral / 0 % jackpot (0.9 % total): the
@@ -46,7 +48,8 @@
  *   CONFIRM_MAINNET=yes                 required
  *   MAINNET_BLACKJACK_OPERATOR          required — the backend's hot wallet (gameOperator + AuthHub operator)
  *   MAINNET_BLACKJACK_MIN_BET / _MAX_BET / _MAX_SIDE_BET   default: 0.1 / 1 / 0.25 (EVA)
- *   MAINNET_BLACKJACK_TABLES / _SEATS   default: 4 / 5 (tables open on demand; this is the cap)
+ *   MAINNET_BLACKJACK_TABLES / _SEATS   default: 64 / 5 (tables open on demand; this is the cap)
+ *   MAINNET_BLACKJACK_CONFIG_MANAGER    optional — may change the table config without being the owner
  *   MAINNET_BLACKJACK_HOUSE_BPS / _REFERRAL_BPS / _JACKPOT_BPS   default: 45 / 45 / 0
  *   MAINNET_BLACKJACK_SETTLE_TIMEOUT_SECONDS   default: 600  (operator may refund a round whose word never came)
  *   MAINNET_BLACKJACK_REFUND_TIMEOUT_SECONDS   default: 3600 (anyone may refund an unsettled round)
@@ -131,7 +134,8 @@ const MAX_BET = evaWithDefault("MAINNET_BLACKJACK_MAX_BET", "1");
 const MAX_SIDE_BET = evaWithDefault("MAINNET_BLACKJACK_MAX_SIDE_BET", "0.25");
 const SETTLE_TIMEOUT = secondsWithDefault("MAINNET_BLACKJACK_SETTLE_TIMEOUT_SECONDS", 600);
 const REFUND_TIMEOUT = secondsWithDefault("MAINNET_BLACKJACK_REFUND_TIMEOUT_SECONDS", 3600);
-const TABLES = secondsWithDefault("MAINNET_BLACKJACK_TABLES", 4);
+const TABLES = secondsWithDefault("MAINNET_BLACKJACK_TABLES", 64);
+const CONFIG_MANAGER = (process.env.MAINNET_BLACKJACK_CONFIG_MANAGER ?? "").trim() ? requireAddress("MAINNET_BLACKJACK_CONFIG_MANAGER") : null;
 const SEATS = secondsWithDefault("MAINNET_BLACKJACK_SEATS", 5);
 
 const CONSUMER_RANGE_LIMIT = 1n; // one random word per round
@@ -190,7 +194,7 @@ async function main() {
   const wait = (hash: `0x${string}`) => publicClient.waitForTransactionReceipt({ hash });
 
   const netStakeBps = 10000 - HOUSE_BPS - REFERRAL_BPS - JACKPOT_BPS;
-  const maxExposure = ((MAX_BET * 55n) / 10n + MAX_SIDE_BET * 26n) * BigInt(SEATS) * BigInt(TABLES);
+  const perTable = ((MAX_BET * 55n) / 10n + MAX_SIDE_BET) * BigInt(SEATS);
 
   banner("BlackjackTableGame — Arbitrum Mainnet (V6 core)");
   console.log("Network:          ", networkName, `(chainId ${chainId})`);
@@ -209,7 +213,8 @@ async function main() {
     `(net stake ${netStakeBps} bps; payouts on gross wagers)`,
   );
   console.log("Timeouts:         ", `settle ${SETTLE_TIMEOUT} s / refund ${REFUND_TIMEOUT} s`);
-  console.log("Max exposure (all tables full):", `${formatEther(maxExposure)} EVA`);
+  console.log("Max reservation per full table:", `${formatEther(perTable)} EVA (the bankroll sets how many tables play at once)`);
+  console.log("Config manager:   ", CONFIG_MANAGER ?? "none");
   console.log("Bankroll:         ", BANKROLL === "0" ? "SKIPPED (fund manually after deploy)" : `${BANKROLL} EVA`);
 
   if (deployerETH === 0n) {
@@ -358,6 +363,11 @@ async function main() {
     ]),
   );
   ok(`${TABLES} × ${SEATS} seats enabled: ${formatEther(MIN_BET)} – ${formatEther(MAX_BET)} EVA, side ≤ ${formatEther(MAX_SIDE_BET)} EVA`);
+  if (CONFIG_MANAGER) {
+    step(`setConfigManager(${CONFIG_MANAGER}, true)`);
+    await wait(await game.write.setConfigManager([CONFIG_MANAGER, true]));
+    ok("Config manager set (table config only: no funds, no roles)");
+  }
 
   // ── 4. Funding ───────────────────────────────────────────────────────────
   if (BANKROLL !== "0") {

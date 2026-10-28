@@ -40,11 +40,11 @@ export function rulesHash(): Hex {
 
 /**
  * Exposure the contract locks when a round starts: 2.5× the stake (natural pays
- * 3:2 on top of the returned stake) plus 26× the side bet (Perfect Pairs 25:1
- * plus the returned side bet).
+ * 3:2 on top of the returned stake) plus the side bet itself (its refund). Perfect
+ * Pairs wins are paid from the free bankroll at settle, not reserved up front.
  */
 export function initialLock(stake: bigint, sideBet: bigint): bigint {
-  return (stake * 5n) / 2n + sideBet * 26n;
+  return (stake * 5n) / 2n + sideBet;
 }
 
 /**

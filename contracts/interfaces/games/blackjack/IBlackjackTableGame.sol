@@ -119,4 +119,5 @@ interface IBlackjackTableGame {
     event SeatRefunded(uint256 indexed roundId, uint8 indexed seat, address indexed player, uint256 amount);
     event RoundRefunded(uint256 indexed roundId, uint8 indexed tableId, bytes32 reason);
     event HouseFundsWithdrawn(address indexed to, uint256 amount);
+    event ConfigManagerSet(address indexed account, bool status);
 }

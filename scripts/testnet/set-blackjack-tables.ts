@@ -3,9 +3,9 @@
  * (the on-demand cap: the backend only shows / fills the ones in use) and seats
  * per table. Keeps limits and timeouts as they are on-chain.
  *
- *   BLACKJACK_TABLES=5 BLACKJACK_SEATS=5 npx hardhat run scripts/testnet/set-blackjack-tables.ts --network arbitrumSepolia
+ *   BLACKJACK_TABLES=64 BLACKJACK_SEATS=5 npx hardhat run scripts/testnet/set-blackjack-tables.ts --network arbitrumSepolia
  *
- * Restart the blackjack backend afterwards (it builds one table per on-chain table at start).
+ * The owner or a config manager may run it. The backend picks new tables up within a minute.
  */
 import { network } from "hardhat";
 import { formatEther } from "viem";
@@ -24,11 +24,12 @@ async function main() {
   const [enabled, , , minBet, maxBet, maxSideBet, settleTimeout, refundTimeout] = (await game.read.tableConfig()) as readonly [
     boolean, number, number, bigint, bigint, bigint, number, number,
   ];
-  const tables = Number(process.env.BLACKJACK_TABLES ?? "5");
+  const tables = Number(process.env.BLACKJACK_TABLES ?? "64");
   const seats = Number(process.env.BLACKJACK_SEATS ?? "5");
   const hash = await game.write.setTableConfig([{ enabled, tables, seats, minBet, maxBet, maxSideBet, settleTimeout, refundTimeout }]);
   await publicClient.waitForTransactionReceipt({ hash });
-  const perTable = ((maxBet * 55n) / 10n + maxSideBet * 26n) * BigInt(seats);
+  // worst case per seat: double or split + insurance; the side bet reserves only its refund
+  const perTable = ((maxBet * 55n) / 10n + maxSideBet) * BigInt(seats);
   console.log(`✓ ${address}: ${tables} tables × ${seats} seats (tx ${hash})`);
   console.log(`  max exposure: ${formatEther(perTable)} EVA per full table, ${formatEther(perTable * BigInt(tables))} EVA with every table full`);
 }
