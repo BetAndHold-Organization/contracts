@@ -1,0 +1,3644 @@
+{
+  "rulesVersion": 1,
+  "rulesHash": "0x36eca2df6da74af7315c114e1ce205c0d3b08777e2fed640e37b8aa6f1d8ea56",
+  "actionCodes": {
+    "HIT": 0,
+    "STAND": 1,
+    "DOUBLE": 2,
+    "SPLIT": 3,
+    "INSURE_YES": 4,
+    "INSURE_NO": 5
+  },
+  "vectors": [
+    {
+      "name": "one seat, plain",
+      "seed": "0x1ebb79a719c23d992761078179754db4d9df9b5f4c3060509cdaefa3469dc1dd",
+      "seats": [
+        {
+          "seat": 1,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 6,
+        "dealerNatural": false,
+        "dealerCards": [
+          5,
+          18,
+          48
+        ],
+        "dealerTotal": 22,
+        "totalPayout": "2000000000000000000",
+        "seats": [
+          {
+            "seat": 1,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  4,
+                  1,
+                  26
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "full table, seven seats",
+      "seed": "0x1532c1dcba8eecd29488d28916dfa1380cd992a858469fdf24495843ba560900",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 1,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 2,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 3,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        },
+        {
+          "seat": 4,
+          "stake": "250000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x000000"
+        },
+        {
+          "seat": 5,
+          "stake": "100000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 6,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 21,
+        "dealerNatural": false,
+        "dealerCards": [
+          48,
+          41,
+          18
+        ],
+        "dealerTotal": 19,
+        "totalPayout": "3350000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  24,
+                  46
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 1,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "perfect",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  23,
+                  23
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  12,
+                  19
+                ],
+                "bet": "500000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  0,
+                  5,
+                  27
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "push",
+                "payout": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "350000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "mixed",
+            "sideBetPayout": "350000000000000000",
+            "hands": [
+              {
+                "cards": [
+                  14,
+                  40,
+                  50,
+                  40,
+                  10
+                ],
+                "bet": "250000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  11,
+                  19
+                ],
+                "bet": "100000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  7,
+                  51
+                ],
+                "bet": "100000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "full table with a split and a double",
+      "seed": "0xf542de85838bac73725d8368104a184c509591e2328561a3dd3df1651eeb4ab7",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        },
+        {
+          "seat": 1,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": true,
+            "insured": false
+          },
+          "actions": "0x030101"
+        },
+        {
+          "seat": 2,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": true,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x02"
+        },
+        {
+          "seat": 3,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 4,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 5,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 6,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 21,
+        "dealerNatural": false,
+        "dealerCards": [
+          41,
+          36,
+          24
+        ],
+        "dealerTotal": 23,
+        "totalPayout": "9500000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  27,
+                  28,
+                  37
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 1,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "mixed",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  20,
+                  4
+                ],
+                "bet": "250000000000000000",
+                "outcome": "win",
+                "payout": "500000000000000000"
+              },
+              {
+                "cards": [
+                  46,
+                  0
+                ],
+                "bet": "250000000000000000",
+                "outcome": "win",
+                "payout": "500000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  19,
+                  15,
+                  50
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  36,
+                  12
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "500000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  5,
+                  23
+                ],
+                "bet": "250000000000000000",
+                "outcome": "win",
+                "payout": "500000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  4,
+                  22
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  24,
+                  48
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "ace up, mixed insurance, no dealer natural",
+      "seed": "0x620013cdc04353c532a17e0f06f26116ece2bb807a25460d3ebccb13b9e8234d",
+      "seats": [
+        {
+          "seat": 1,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": true
+          },
+          "actions": "0x0401"
+        },
+        {
+          "seat": 3,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0501"
+        },
+        {
+          "seat": 4,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": true
+          },
+          "actions": "0x040000"
+        },
+        {
+          "seat": 6,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": true
+          },
+          "actions": "0x0401"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 14,
+        "dealerNatural": false,
+        "dealerCards": [
+          0,
+          31,
+          21,
+          25
+        ],
+        "dealerTotal": 26,
+        "totalPayout": "2700000000000000000",
+        "seats": [
+          {
+            "seat": 1,
+            "payout": "200000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": true,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  6,
+                  12
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "500000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "mixed",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  9,
+                  22
+                ],
+                "bet": "250000000000000000",
+                "outcome": "win",
+                "payout": "500000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": true,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  4,
+                  26,
+                  49,
+                  37
+                ],
+                "bet": "500000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": true,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  20,
+                  48
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "ace up, dealer natural pays insurance",
+      "seed": "0x91d56a5306e606a7914bb1133d4f44cdc5f1afd09a2e8e1f4d502f1ca87eb18d",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x05"
+        },
+        {
+          "seat": 4,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": true
+          },
+          "actions": "0x04"
+        },
+        {
+          "seat": 5,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x05"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 8,
+        "dealerNatural": true,
+        "dealerCards": [
+          0,
+          49
+        ],
+        "dealerTotal": 21,
+        "totalPayout": "1250000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "500000000000000000",
+            "wagerRefund": "0",
+            "natural": true,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  0,
+                  10
+                ],
+                "bet": "500000000000000000",
+                "outcome": "push",
+                "payout": "500000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "750000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": true,
+            "insurancePayout": "750000000000000000",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  4,
+                  36
+                ],
+                "bet": "500000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  46,
+                  15
+                ],
+                "bet": "500000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "ten up, dealer natural ends the round",
+      "seed": "0x96e9ea4aacd21d2c4f44ab05104a7fa92f958b1a74c085ae3c89e1f7afd205e4",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x"
+        },
+        {
+          "seat": 1,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x"
+        },
+        {
+          "seat": 2,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x"
+        },
+        {
+          "seat": 3,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x"
+        },
+        {
+          "seat": 4,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 12,
+        "dealerNatural": true,
+        "dealerCards": [
+          49,
+          13
+        ],
+        "dealerTotal": 21,
+        "totalPayout": "0",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  32,
+                  0
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 1,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  10,
+                  28
+                ],
+                "bet": "500000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  51,
+                  30
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  25,
+                  18
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "mixed",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  14,
+                  40
+                ],
+                "bet": "100000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "player natural next to players who play",
+      "seed": "0x32c63c66723452a930b8c73ac756d35bb5c88d02156f4e57b524cd107cd43d83",
+      "seats": [
+        {
+          "seat": 1,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 2,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 3,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x000001"
+        },
+        {
+          "seat": 5,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 14,
+        "dealerNatural": false,
+        "dealerCards": [
+          29,
+          13,
+          1,
+          37
+        ],
+        "dealerTotal": 17,
+        "totalPayout": "4500000000000000000",
+        "seats": [
+          {
+            "seat": 1,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  0,
+                  33
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  28,
+                  11
+                ],
+                "bet": "500000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  44,
+                  1,
+                  1,
+                  2
+                ],
+                "bet": "100000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "2500000000000000000",
+            "wagerRefund": "0",
+            "natural": true,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  48,
+                  26
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "blackjack",
+                "payout": "2500000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "split aces",
+      "seed": "0xeb29c0a61bd74b8c0dd7ab0ad11ec67ed03346bea0e3c90a19fd5a815faea617",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x050000"
+        },
+        {
+          "seat": 3,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": true,
+            "insured": false
+          },
+          "actions": "0x0503"
+        },
+        {
+          "seat": 4,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": true,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0502"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 16,
+        "dealerNatural": false,
+        "dealerCards": [
+          13,
+          39,
+          51,
+          3,
+          42
+        ],
+        "dealerTotal": 20,
+        "totalPayout": "2000000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  29,
+                  5,
+                  27,
+                  25
+                ],
+                "bet": "500000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "mixed",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  26,
+                  40
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              },
+              {
+                "cards": [
+                  39,
+                  45
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  32,
+                  16,
+                  38
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "split 8s at first base changes everybody's cards",
+      "seed": "0x67594a03ad45663a5c0db31ca70afbf316cd777451f703236412dd8fb6e57b87",
+      "seats": [
+        {
+          "seat": 2,
+          "stake": "100000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": true,
+            "insured": false
+          },
+          "actions": "0x03010001"
+        },
+        {
+          "seat": 3,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x00"
+        },
+        {
+          "seat": 4,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 14,
+        "dealerNatural": false,
+        "dealerCards": [
+          1,
+          46,
+          22
+        ],
+        "dealerTotal": 20,
+        "totalPayout": "350000000000000000",
+        "seats": [
+          {
+            "seat": 2,
+            "payout": "350000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "mixed",
+            "sideBetPayout": "350000000000000000",
+            "hands": [
+              {
+                "cards": [
+                  33,
+                  45
+                ],
+                "bet": "100000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              },
+              {
+                "cards": [
+                  46,
+                  16,
+                  26
+                ],
+                "bet": "100000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  7,
+                  42,
+                  23
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  3,
+                  30,
+                  42
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "everybody busts or has a natural: dealer does not draw",
+      "seed": "0x388e168966f69b636b16e53bcdf82e4196e4ec0e1b6366c215b426b9b946f85f",
+      "seats": [
+        {
+          "seat": 1,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0500"
+        },
+        {
+          "seat": 2,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x05"
+        },
+        {
+          "seat": 5,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x050000"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 11,
+        "dealerNatural": false,
+        "dealerCards": [
+          0,
+          4
+        ],
+        "dealerTotal": 16,
+        "totalPayout": "625000000000000000",
+        "seats": [
+          {
+            "seat": 1,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  17,
+                  49,
+                  12
+                ],
+                "bet": "500000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "625000000000000000",
+            "wagerRefund": "0",
+            "natural": true,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  22,
+                  39
+                ],
+                "bet": "250000000000000000",
+                "outcome": "blackjack",
+                "payout": "625000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  25,
+                  29,
+                  27,
+                  31
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "dealer busts",
+      "seed": "0x6d579058850d87b7304a3de073739d9d394c6579086c0bab4d545b086e8d963d",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 1,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": true,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x02"
+        },
+        {
+          "seat": 2,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        },
+        {
+          "seat": 3,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": true,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x02"
+        },
+        {
+          "seat": 4,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": true,
+            "insured": false
+          },
+          "actions": "0x030101"
+        },
+        {
+          "seat": 6,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 20,
+        "dealerNatural": false,
+        "dealerCards": [
+          3,
+          20,
+          9
+        ],
+        "dealerTotal": 22,
+        "totalPayout": "11700000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  22,
+                  11
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 1,
+            "payout": "4000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  19,
+                  2,
+                  38
+                ],
+                "bet": "2000000000000000000",
+                "outcome": "win",
+                "payout": "4000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "500000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  1,
+                  26,
+                  47
+                ],
+                "bet": "250000000000000000",
+                "outcome": "win",
+                "payout": "500000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "4000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  44,
+                  3,
+                  19
+                ],
+                "bet": "2000000000000000000",
+                "outcome": "win",
+                "payout": "4000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "mixed",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  34,
+                  36
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              },
+              {
+                "cards": [
+                  8,
+                  11
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "200000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  5,
+                  37
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Perfect Pairs hit",
+      "seed": "0x0a81165414256ccd96e20a1e2ebbc46ce72db11e4512e891dd84202a52f7e846",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x000001"
+        },
+        {
+          "seat": 1,
+          "stake": "250000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 2,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 4,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 13,
+        "dealerNatural": false,
+        "dealerCards": [
+          28,
+          5,
+          51
+        ],
+        "dealerTotal": 19,
+        "totalPayout": "350000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "350000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "mixed",
+            "sideBetPayout": "350000000000000000",
+            "hands": [
+              {
+                "cards": [
+                  1,
+                  14,
+                  1,
+                  24
+                ],
+                "bet": "500000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 1,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  18,
+                  32
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  37,
+                  20
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  34,
+                  42
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "paid double never played is refunded",
+      "seed": "0x884f4e022b5f141c366d0d02516ff62d1517ae0eabd023494847971eb7a23d5a",
+      "seats": [
+        {
+          "seat": 3,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": true,
+            "split": false,
+            "insured": true
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 5,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 9,
+        "dealerNatural": false,
+        "dealerCards": [
+          16,
+          2,
+          46,
+          26,
+          40
+        ],
+        "dealerTotal": 18,
+        "totalPayout": "1350000000000000000",
+        "seats": [
+          {
+            "seat": 3,
+            "payout": "350000000000000000",
+            "wagerRefund": "150000000000000000",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  33,
+                  13
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  22,
+                  51
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #0 (1 seats)",
+      "seed": "0xc70fc051f446213ebdbd546b81dd90c2be5315e970e41a12f4ef3db49f2f2ee8",
+      "seats": [
+        {
+          "seat": 5,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 6,
+        "dealerNatural": false,
+        "dealerCards": [
+          27,
+          16,
+          29,
+          21
+        ],
+        "dealerTotal": 19,
+        "totalPayout": "0",
+        "seats": [
+          {
+            "seat": 5,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  32,
+                  18
+                ],
+                "bet": "500000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #1 (2 seats)",
+      "seed": "0xfbeb40074561674cdb64ea8974c78325317c446d320a0978c7d9202a6f9a1e7a",
+      "seats": [
+        {
+          "seat": 3,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 5,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 8,
+        "dealerNatural": false,
+        "dealerCards": [
+          27,
+          46,
+          44,
+          31
+        ],
+        "dealerTotal": 22,
+        "totalPayout": "3000000000000000000",
+        "seats": [
+          {
+            "seat": 3,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  46,
+                  51
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  11,
+                  32
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #2 (3 seats)",
+      "seed": "0xffb1cd2808990f2b541112c422dda0195db940e17d319935cd2a61b445e362c6",
+      "seats": [
+        {
+          "seat": 1,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        },
+        {
+          "seat": 5,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 6,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 11,
+        "dealerNatural": false,
+        "dealerCards": [
+          2,
+          23,
+          15,
+          25
+        ],
+        "dealerTotal": 26,
+        "totalPayout": "3200000000000000000",
+        "seats": [
+          {
+            "seat": 1,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  40,
+                  31,
+                  34
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  41,
+                  49
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "200000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  43,
+                  23
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #3 (4 seats)",
+      "seed": "0xefd08c8ad5d083053a4483eac99e8f6dcdfc5a2533c1007320ecc52e8920fa3d",
+      "seats": [
+        {
+          "seat": 1,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 3,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 4,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 6,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 12,
+        "dealerNatural": false,
+        "dealerCards": [
+          17,
+          42,
+          40,
+          36
+        ],
+        "dealerTotal": 21,
+        "totalPayout": "0",
+        "seats": [
+          {
+            "seat": 1,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  45,
+                  13
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  25,
+                  36
+                ],
+                "bet": "500000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  28,
+                  47
+                ],
+                "bet": "100000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  38,
+                  2
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #4 (5 seats)",
+      "seed": "0xe0b97a7a897ecb2c01ab98bb7ae7d14c1c18e0e805ea6ae518778401730494ee",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x00"
+        },
+        {
+          "seat": 3,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x000000"
+        },
+        {
+          "seat": 4,
+          "stake": "250000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x00"
+        },
+        {
+          "seat": 5,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x00"
+        },
+        {
+          "seat": 6,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 18,
+        "dealerNatural": false,
+        "dealerCards": [
+          46,
+          47
+        ],
+        "dealerTotal": 17,
+        "totalPayout": "500000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  11,
+                  27,
+                  10
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  3,
+                  12,
+                  26,
+                  0,
+                  12
+                ],
+                "bet": "500000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  7,
+                  31,
+                  47
+                ],
+                "bet": "250000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  8,
+                  43,
+                  20
+                ],
+                "bet": "100000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "500000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  0,
+                  7
+                ],
+                "bet": "250000000000000000",
+                "outcome": "win",
+                "payout": "500000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #5 (6 seats)",
+      "seed": "0x14f3eec3478e6aa00a5393ab0196b64075cc50fa32acf48391cfe084922d9b98",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": true,
+            "insured": false
+          },
+          "actions": "0x03000100"
+        },
+        {
+          "seat": 1,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 3,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 4,
+          "stake": "250000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x000001"
+        },
+        {
+          "seat": 5,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 6,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 21,
+        "dealerNatural": false,
+        "dealerCards": [
+          44,
+          30,
+          21
+        ],
+        "dealerTotal": 20,
+        "totalPayout": "4450000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "3300000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "perfect",
+            "sideBetPayout": "1300000000000000000",
+            "hands": [
+              {
+                "cards": [
+                  18,
+                  28,
+                  2
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              },
+              {
+                "cards": [
+                  18,
+                  4,
+                  10
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 1,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  46,
+                  35
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  15,
+                  48
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  2,
+                  13,
+                  27,
+                  19
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  33,
+                  11
+                ],
+                "bet": "250000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "1150000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "colored",
+            "sideBetPayout": "650000000000000000",
+            "hands": [
+              {
+                "cards": [
+                  23,
+                  36
+                ],
+                "bet": "500000000000000000",
+                "outcome": "push",
+                "payout": "500000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #6 (7 seats)",
+      "seed": "0x0e1411a71d808d419e0afbe2f27a6f74cc14a896e312be37c3fbcc946febbcbb",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 1,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        },
+        {
+          "seat": 2,
+          "stake": "100000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": true,
+            "insured": false
+          },
+          "actions": "0x03010001"
+        },
+        {
+          "seat": 3,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": true,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x02"
+        },
+        {
+          "seat": 4,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        },
+        {
+          "seat": 5,
+          "stake": "100000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 6,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": true,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x02"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 24,
+        "dealerNatural": false,
+        "dealerCards": [
+          5,
+          11,
+          46
+        ],
+        "dealerTotal": 24,
+        "totalPayout": "5550000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "200000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  12,
+                  4
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 1,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  44,
+                  39,
+                  9
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "750000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "mixed",
+            "sideBetPayout": "350000000000000000",
+            "hands": [
+              {
+                "cards": [
+                  19,
+                  19
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              },
+              {
+                "cards": [
+                  45,
+                  14,
+                  4
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "400000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  28,
+                  44,
+                  41
+                ],
+                "bet": "200000000000000000",
+                "outcome": "win",
+                "payout": "400000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  17,
+                  0,
+                  41
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "200000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  36,
+                  31
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  1,
+                  7,
+                  26
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #7 (1 seats)",
+      "seed": "0xace6b8da530a5d2fd528ea517b868dae6735375cd79733451aa8cb8e88469b00",
+      "seats": [
+        {
+          "seat": 1,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 4,
+        "dealerNatural": false,
+        "dealerCards": [
+          3,
+          14
+        ],
+        "dealerTotal": 6,
+        "totalPayout": "1250000000000000000",
+        "seats": [
+          {
+            "seat": 1,
+            "payout": "1250000000000000000",
+            "wagerRefund": "0",
+            "natural": true,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  51,
+                  0
+                ],
+                "bet": "500000000000000000",
+                "outcome": "blackjack",
+                "payout": "1250000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #8 (2 seats)",
+      "seed": "0x5a04e5bf7254a9686ebfe243088d80f995b045ba33bbdd35127d64a5f4bedf84",
+      "seats": [
+        {
+          "seat": 3,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 6,
+          "stake": "500000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x00"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 10,
+        "dealerNatural": false,
+        "dealerCards": [
+          41,
+          27,
+          31,
+          28,
+          9
+        ],
+        "dealerTotal": 24,
+        "totalPayout": "500000000000000000",
+        "seats": [
+          {
+            "seat": 3,
+            "payout": "500000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  32,
+                  38
+                ],
+                "bet": "250000000000000000",
+                "outcome": "win",
+                "payout": "500000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  49,
+                  14,
+                  11
+                ],
+                "bet": "500000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #9 (3 seats)",
+      "seed": "0x77fd8d25c6175a3c94bd530b518b95f8368115ce404af54c14debb165cc274ee",
+      "seats": [
+        {
+          "seat": 2,
+          "stake": "1000000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 3,
+          "stake": "100000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": true,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x02"
+        },
+        {
+          "seat": 5,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 13,
+        "dealerNatural": false,
+        "dealerCards": [
+          28,
+          13,
+          28,
+          30,
+          43
+        ],
+        "dealerTotal": 17,
+        "totalPayout": "2000000000000000000",
+        "seats": [
+          {
+            "seat": 2,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  20,
+                  0
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  43,
+                  31,
+                  42
+                ],
+                "bet": "200000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 5,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  20,
+                  29,
+                  41
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #10 (4 seats)",
+      "seed": "0xc85ee689d8f74853b42bd1508944c017566d6fdf479dbc9ceddbd5dd455a4356",
+      "seats": [
+        {
+          "seat": 1,
+          "stake": "100000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x000001"
+        },
+        {
+          "seat": 2,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x"
+        },
+        {
+          "seat": 3,
+          "stake": "500000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 4,
+          "stake": "1000000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 12,
+        "dealerNatural": false,
+        "dealerCards": [
+          19,
+          36
+        ],
+        "dealerTotal": 17,
+        "totalPayout": "5700000000000000000",
+        "seats": [
+          {
+            "seat": 1,
+            "payout": "200000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  27,
+                  43,
+                  20,
+                  30
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "2500000000000000000",
+            "wagerRefund": "0",
+            "natural": true,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  0,
+                  36
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "blackjack",
+                "payout": "2500000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "1000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  49,
+                  20
+                ],
+                "bet": "500000000000000000",
+                "outcome": "win",
+                "payout": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "2000000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  25,
+                  10
+                ],
+                "bet": "1000000000000000000",
+                "outcome": "win",
+                "payout": "2000000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "random table #11 (5 seats)",
+      "seed": "0xb253e6e9408ed3996bb3953eb2661e536ed69bd937c8fb45ba69cfa89582bdd7",
+      "seats": [
+        {
+          "seat": 0,
+          "stake": "250000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0000"
+        },
+        {
+          "seat": 2,
+          "stake": "100000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0001"
+        },
+        {
+          "seat": 3,
+          "stake": "100000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x01"
+        },
+        {
+          "seat": 4,
+          "stake": "250000000000000000",
+          "sideBet": "0",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x0000"
+        },
+        {
+          "seat": 6,
+          "stake": "100000000000000000",
+          "sideBet": "50000000000000000",
+          "flags": {
+            "doubled": false,
+            "split": false,
+            "insured": false
+          },
+          "actions": "0x000001"
+        }
+      ],
+      "expected": {
+        "cardsDrawn": 20,
+        "dealerNatural": false,
+        "dealerCards": [
+          8,
+          30,
+          4
+        ],
+        "dealerTotal": 19,
+        "totalPayout": "300000000000000000",
+        "seats": [
+          {
+            "seat": 0,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  42,
+                  35,
+                  1,
+                  36
+                ],
+                "bet": "250000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 2,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  47,
+                  19,
+                  27
+                ],
+                "bet": "100000000000000000",
+                "outcome": "lose",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 3,
+            "payout": "100000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  20,
+                  13
+                ],
+                "bet": "100000000000000000",
+                "outcome": "push",
+                "payout": "100000000000000000"
+              }
+            ]
+          },
+          {
+            "seat": 4,
+            "payout": "0",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  33,
+                  17,
+                  14,
+                  6
+                ],
+                "bet": "250000000000000000",
+                "outcome": "bust",
+                "payout": "0"
+              }
+            ]
+          },
+          {
+            "seat": 6,
+            "payout": "200000000000000000",
+            "wagerRefund": "0",
+            "natural": false,
+            "insuranceTaken": false,
+            "insurancePayout": "0",
+            "sideBetOutcome": "none",
+            "sideBetPayout": "0",
+            "hands": [
+              {
+                "cards": [
+                  40,
+                  28,
+                  8,
+                  5
+                ],
+                "bet": "100000000000000000",
+                "outcome": "win",
+                "payout": "200000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
