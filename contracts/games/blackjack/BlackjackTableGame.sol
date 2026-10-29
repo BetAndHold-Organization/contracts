@@ -19,7 +19,9 @@ import {BlackjackTableLib} from "./libraries/BlackjackTableLib.sol";
  *           2. Players take seats with their bet (`placeBet`, or `placeBetFor`
  *              relayed with a session-key signature). A player may register a
  *              one-round `actionSigner`: a throwaway browser key that signs the
- *              seat's play without wallet popups.
+ *              seat's play without wallet popups. The player's AuthHub session key
+ *              is snapshotted into the seat: revoking or replacing it afterwards
+ *              never invalidates (nor enables) a signature for that seat.
  *           3. The operator closes betting (`lockRound`): ONE random word is
  *              requested from the platform's RandomProvider.
  *           4. Cards come from `seed = keccak256(serverSeed ‖ vrfWord ‖ roundId ‖ this)`;
@@ -257,6 +259,9 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
             stake: stake,
             sideBet: sideBet,
             actionSigner: actionSigner,
+            // Snapshot: a key revoked, expired or replaced after the bet can neither block the
+            // settle (the old signatures stay valid) nor sign for the seat (the new one is not here).
+            sessionKey: authHub.sessionKeyOf(player),
             doubled: false,
             split: false,
             insured: false
@@ -435,7 +440,7 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
                 abi.encode(SEAT_PLAY_TYPEHASH, address(this), s.player, roundId, p.seat, keccak256(p.actions[:p.signedLen]))
             );
             address signer = _hashTypedDataV4(structHash).recover(p.signature);
-            if (signer != s.player && signer != s.actionSigner && signer != authHub.sessionKeyOf(s.player)) {
+            if (signer != s.player && signer != s.actionSigner && signer != s.sessionKey) {
                 revert InvalidSeatSignature(p.seat);
             }
         }

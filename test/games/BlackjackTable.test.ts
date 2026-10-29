@@ -471,6 +471,44 @@ describe("BlackjackTableGame — settle", () => {
     await openRound(ctx, 0);
   });
 
+  it("the session key is snapshotted at the bet: revoked afterwards it still settles, authorized afterwards it does not sign", async () => {
+    const ctx = await setup();
+    const { roundId, serverSeed } = await openRound(ctx);
+    // playerC bets with sessionB authorized (QuickBet-style); playerA bets with no session key at all.
+    const hubC = await env.viem.getContractAt("AuthHub", ctx.authHub.address, { client: { wallet: walletClients[W.playerC] } });
+    const hubA = await env.viem.getContractAt("AuthHub", ctx.authHub.address, { client: { wallet: walletClients[W.playerA] } });
+    await hubC.write.authorize([addr(W.sessionB), 0n, 0n]);
+    await bet(ctx, W.playerC, roundId, 5);
+    await bet(ctx, W.playerA, roundId, 1);
+    expect(((await ctx.game.read.getSeat([roundId, 5])) as any).sessionKey.toLowerCase()).to.equal(addr(W.sessionB).toLowerCase());
+    expect(((await ctx.game.read.getSeat([roundId, 1])) as any).sessionKey).to.equal(ZERO_ADDRESS);
+    const inputs: SeatInput[] = [
+      { seat: 1, stake: STAKE, sideBet: 0n },
+      { seat: 5, stake: STAKE, sideBet: 0n },
+    ];
+    const { seed } = await lockAndDeal(ctx, roundId, serverSeed, inputs, (r) => r.phase === "playing" && r.seats.every((s) => !s.natural));
+    const run = freshRun(seed, inputs);
+    playOut(run);
+    // Cards on the table: playerC revokes the key it bet with (the "bust and revoke" trick),
+    // playerA authorizes a brand-new one and tries to sign with it.
+    await hubC.write.revoke();
+    await hubA.write.authorize([addr(W.sessionA), 0n, 0n]);
+    expect(await ctx.authHub.read.sessionKeyOf([addr(W.playerC)])).to.equal(ZERO_ADDRESS);
+    const op = await gameAs(ctx, W.operator);
+    const lateKey = await plays(ctx, roundId, run, new Map([
+      [1, { signer: signerOf(W.sessionA), player: addr(W.playerA) }],
+      [5, { signer: signerOf(W.sessionB), player: addr(W.playerC) }],
+    ]));
+    await expectRevert(op.write.settle([roundId, serverSeed, lateKey]), "InvalidSeatSignature");
+    const snapshotKey = await plays(ctx, roundId, run, new Map([
+      [1, { signer: signerOf(W.playerA), player: addr(W.playerA) }],
+      [5, { signer: signerOf(W.sessionB), player: addr(W.playerC) }],
+    ]));
+    await op.write.settle([roundId, serverSeed, snapshotKey]);
+    expect(((await ctx.game.read.getRound([roundId])) as any).status).to.equal(ST.Settled);
+    expect(await ctx.game.read.lockedExposure()).to.equal(0n);
+  });
+
   it("timeouts: after the signed prefix the operator may only stand / decline insurance", async () => {
     const ctx = await setup();
     const { roundId, serverSeed } = await openRound(ctx);

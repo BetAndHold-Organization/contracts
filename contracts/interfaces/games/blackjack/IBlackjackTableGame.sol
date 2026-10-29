@@ -41,6 +41,7 @@ interface IBlackjackTableGame {
         uint128 stake;        // gross main wager (payouts are computed on the gross amount)
         uint128 sideBet;      // gross Perfect Pairs wager
         address actionSigner; // optional one-round key that may sign this seat's play
+        address sessionKey;   // AuthHub session key at the bet: the only session key that may sign this seat's play
         bool doubled;
         bool split;
         bool insured;
@@ -61,7 +62,7 @@ interface IBlackjackTableGame {
     /// @param actions   the whole log (one byte per action)
     /// @param signedLen prefix covered by `signature` (EIP-712 SeatPlay); everything
     ///                  after it may only be STAND / INSURE_NO (timeouts)
-    /// @param signature by the player, their AuthHub session key, or the seat's actionSigner
+    /// @param signature by the player, the session key snapshotted at the bet, or the seat's actionSigner
     struct SeatPlay {
         uint8 seat;
         bytes actions;
