@@ -31,6 +31,7 @@ interface IBlackjackTableGame {
         uint8 seatCount;
         uint40 openedAt;
         uint40 lockedAt;
+        uint40 lastBetAt;  // last placeBet: anyone may refund an Open round `refundTimeout` after it
         bytes32 commit;    // keccak256(abi.encodePacked(serverSeed)), published before any bet
         uint256 requestId; // RandomProvider request (set at lock)
         uint256 locked;    // exposure reserved for this round (all seats)
@@ -118,7 +119,13 @@ interface IBlackjackTableGame {
     );
 
     event SeatRefunded(uint256 indexed roundId, uint8 indexed seat, address indexed player, uint256 amount);
+    /// @param reason CLOSED (operator closed an Open round), EXPIRED (Locked, no random word:
+    ///        wagers back), FORFEITED (Locked, word available, never settled: every seat is paid
+    ///        what the round had reserved for it)
     event RoundRefunded(uint256 indexed roundId, uint8 indexed tableId, bytes32 reason);
+    /// @notice The PaymentHandler refused the fees on a seat's consumed extra wagers at settle
+    ///         (e.g. game disabled there): the settle went through, the fees stayed in the bankroll.
+    event ExtraWagerFeeSkipped(uint256 indexed roundId, uint8 indexed seat, address indexed player, uint256 amount);
     event HouseFundsWithdrawn(address indexed to, uint256 amount);
     event ConfigManagerSet(address indexed account, bool status);
 }

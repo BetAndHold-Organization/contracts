@@ -455,6 +455,25 @@ library BlackjackTableLib {
         r.payout = payout + refund;
     }
 
+    /// @notice A seat's money, from its on-chain flags: the gross wagers collected (`wagered`),
+    ///         the extra wagers among them (`extras`: double / split / insurance) and what the
+    ///         round reserved for it (`locked`: 2.5× stake + side bet + 1.5× stake per extra).
+    function seatAmounts(uint256 stake, uint256 sideBet, bool doubled, bool split, bool insured)
+        external
+        pure
+        returns (uint256 wagered, uint256 extras, uint256 locked)
+    {
+        if (doubled) extras += stake;
+        if (split) extras += stake;
+        if (insured) extras += stake / 2;
+        wagered = stake + sideBet + extras;
+        locked = (stake * 5) / 2 + sideBet;
+        uint256 extra = (stake * 3) / 2;
+        if (doubled) locked += extra;
+        if (split) locked += extra;
+        if (insured) locked += extra;
+    }
+
     function _cardsBytes(uint8[12] memory cards, uint8 count) private pure returns (bytes memory out) {
         out = new bytes(count);
         for (uint8 i = 0; i < count; i++) out[i] = bytes1(cards[i]);

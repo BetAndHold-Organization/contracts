@@ -681,12 +681,48 @@ describe("BlackjackTableGame — settle", () => {
       [4, { signer: signerOf(W.playerB), player: addr(W.playerB), signedLen: 0 }], // INSURE_NO by timeout
     ]));
     const before = await Promise.all([W.playerA, W.playerB].map((p) => balanceOf(ctx, addr(p))));
+    // extra wagers are only collected when added: no fee has left the game yet
+    const feesBefore = await balanceOf(ctx, addr(W.feeRecipient));
     await (await gameAs(ctx, W.operator)).write.settle([roundId, serverSeed, ps]);
     const after = await Promise.all([W.playerA, W.playerB].map((p) => balanceOf(ctx, addr(p))));
     expect(after[0]! - before[0]!).to.equal(expected.seats[0]!.payout);
     expect(expected.seats[0]!.insurancePayout).to.equal((STAKE / 2n) * 3n);
-    // the seat-4 refund (unused double) is added by the contract on top of the engine's result
+    // the seat-4 refund (unused double) is added by the contract on top of the engine's result, gross
     expect(after[1]! - before[1]!).to.equal(expected.seats[1]!.payout + STAKE);
+    // fees at settle: the house share (45 bps) of the insurance that was played, nothing on the unused double
+    expect((await balanceOf(ctx, addr(W.feeRecipient))) - feesBefore).to.equal(((STAKE / 2n) * 45n) / 10_000n);
+    expect(await events(ctx, "ExtraWagerFeeSkipped")).to.have.length(0);
+  });
+
+  it("fees the handler refuses at settle stay in the bankroll and the settle still goes through", async () => {
+    const ctx = await setup();
+    const { roundId, serverSeed } = await openRound(ctx);
+    await bet(ctx, W.playerA, roundId, 2);
+    await bet(ctx, W.playerB, roundId, 4);
+    const inputs: SeatInput[] = [
+      { seat: 2, stake: STAKE, sideBet: 0n },
+      { seat: 4, stake: STAKE, sideBet: 0n },
+    ];
+    const { seed } = await lockAndDeal(ctx, roundId, serverSeed, inputs, (r) => r.phase === "insurance" && r.dealerNatural);
+    const run = freshRun(seed, inputs);
+    run.apply(2, Action.INSURE_YES);
+    run.apply(4, Action.INSURE_NO);
+    const expected = run.finish();
+    await (await gameAs(ctx, W.playerA)).write.addWager([roundId, 2, KIND.Insurance]);
+    // the handler disables the game between the wager and the settle
+    await ctx.handler.write.setGameStatus([ctx.game.address, false]);
+    const ps = await plays(ctx, roundId, run, new Map([
+      [2, { signer: signerOf(W.playerA), player: addr(W.playerA) }],
+      [4, { signer: signerOf(W.playerB), player: addr(W.playerB) }],
+    ]));
+    const before = await balanceOf(ctx, addr(W.playerA));
+    const feesBefore = await balanceOf(ctx, addr(W.feeRecipient));
+    await (await gameAs(ctx, W.operator)).write.settle([roundId, serverSeed, ps]);
+    expect((await balanceOf(ctx, addr(W.playerA))) - before).to.equal(expected.seats[0]!.payout);
+    expect(await balanceOf(ctx, addr(W.feeRecipient))).to.equal(feesBefore);
+    const skipped = await events(ctx, "ExtraWagerFeeSkipped");
+    expect(skipped).to.have.length(1);
+    expect(skipped[0].args.amount).to.equal(STAKE / 2n);
   });
 });
 
@@ -712,7 +748,32 @@ describe("BlackjackTableGame — refunds", () => {
     await expectRevert((await gameAs(ctx, W.operator)).write.cancelRound([roundId]), "InvalidRound");
   });
 
-  it("locked round: operator after settleTimeout only if the word never came; anyone after refundTimeout, extras included", async () => {
+  it("open round: anyone refunds only once there are bets and refundTimeout has passed since the LAST bet; an empty round stays with the operator", async () => {
+    const ctx = await setup();
+    const { roundId } = await openRound(ctx);
+    const other = await gameAs(ctx, W.other);
+    await env.networkHelpers.time.increase(TABLE.refundTimeout + 1);
+    // empty and old: nobody's money is waiting, so no stranger may close the table's round
+    await expectRevert(other.write.cancelRound([roundId]), "TimeoutNotReached");
+    await bet(ctx, W.playerA, roundId, 0);
+    await expectRevert(other.write.cancelRound([roundId]), "TimeoutNotReached");
+    await env.networkHelpers.time.increase(TABLE.refundTimeout - 10);
+    // a fresh bet restarts the clock for the whole round
+    await bet(ctx, W.playerB, roundId, 1);
+    await env.networkHelpers.time.increase(20);
+    await expectRevert(other.write.cancelRound([roundId]), "TimeoutNotReached");
+    await env.networkHelpers.time.increase(TABLE.refundTimeout);
+    const before = await balanceOf(ctx, addr(W.playerA));
+    await other.write.cancelRound([roundId]);
+    expect((await balanceOf(ctx, addr(W.playerA))) - before).to.equal(STAKE);
+    const rr = await events(ctx, "RoundRefunded");
+    expect(rr[0].args.reason).to.equal(toHex("CLOSED", { size: 32 }));
+    // the operator never needed a timeout: a new empty round can be closed at once
+    const next = await openRound(ctx);
+    await (await gameAs(ctx, W.operator)).write.cancelRound([next.roundId]);
+  });
+
+  it("locked round: operator after settleTimeout only if the word never came; expired WITH a word, every seat is paid what was reserved (FORFEITED)", async () => {
     const ctx = await setup();
     const { roundId } = await openRound(ctx);
     await bet(ctx, W.playerA, roundId, 0);
@@ -727,8 +788,27 @@ describe("BlackjackTableGame — refunds", () => {
     await expectRevert((await gameAs(ctx, W.other)).write.cancelRound([roundId]), "TimeoutNotReached");
     await env.networkHelpers.time.increase(TABLE.refundTimeout);
     const before = await balanceOf(ctx, addr(W.playerA));
+    const lockedBefore = await ctx.game.read.lockedExposure();
     await (await gameAs(ctx, W.other)).write.cancelRound([roundId]);
-    expect((await balanceOf(ctx, addr(W.playerA))) - before).to.equal(STAKE * 2n);
+    // the operator could have settled (word present) and let it expire: the seat gets its
+    // reserved max (2.5× stake for the hand + 1.5× for the double), not its wagers back
+    expect((await balanceOf(ctx, addr(W.playerA))) - before).to.equal((STAKE * 5n) / 2n + (STAKE * 3n) / 2n);
+    expect(lockedBefore).to.equal((STAKE * 5n) / 2n + (STAKE * 3n) / 2n);
+    expect(await ctx.game.read.lockedExposure()).to.equal(0n);
+    const rr = await events(ctx, "RoundRefunded");
+    expect(rr[0].args.reason).to.equal(toHex("FORFEITED", { size: 32 }));
+  });
+
+  it("locked round without a word after refundTimeout: anyone refunds the wagers gross (EXPIRED)", async () => {
+    const ctx = await setup();
+    const { roundId } = await openRound(ctx);
+    await bet(ctx, W.playerA, roundId, 0, { side: parseEther("0.1") });
+    await (await gameAs(ctx, W.operator)).write.lockRound([roundId]);
+    await (await gameAs(ctx, W.playerA)).write.addWager([roundId, 0, KIND.Insurance]);
+    await env.networkHelpers.time.increase(TABLE.refundTimeout);
+    const before = await balanceOf(ctx, addr(W.playerA));
+    await (await gameAs(ctx, W.other)).write.cancelRound([roundId]);
+    expect((await balanceOf(ctx, addr(W.playerA))) - before).to.equal(STAKE + parseEther("0.1") + STAKE / 2n);
     const rr = await events(ctx, "RoundRefunded");
     expect(rr[0].args.reason).to.equal(toHex("EXPIRED", { size: 32 }));
   });

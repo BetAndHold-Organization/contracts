@@ -37,7 +37,8 @@ import {BlackjackTableLib} from "./libraries/BlackjackTableLib.sol";
  *
  *         Payouts are computed on GROSS wagers; PaymentHandler fees are paid by the
  *         game out of its rules edge. Nobody's cooperation is needed to settle; a
- *         round that is never settled is refunded in full after `refundTimeout`.
+ *         round that is never settled is refunded after `refundTimeout` — and if its
+ *         random word was there to settle it, every seat gets what was reserved for it.
  */
 contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
     using ECDSA for bytes32;
@@ -253,6 +254,7 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
         r.locked += locked;
         r.seatMask |= uint8(1) << seat;
         r.seatCount += 1;
+        r.lastBetAt = uint40(block.timestamp);
 
         _seats[roundId][seat] = Seat({
             player: player,
@@ -339,9 +341,10 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
         }
 
         uint256 amount = _wagerAmount(s.stake, kind);
-        // The referral was attributed at placeBet; extra wagers carry no referrer.
-        uint256 net = _collectAndProcessBet(player, address(0), amount);
-        require(net > 0, "net zero");
+        // Collected only: the PaymentHandler fees are taken at settle on the part the play
+        // consumed. A wager that is never played (or a round that is refunded) goes back gross,
+        // so an unused wager cannot drain fees out of the bankroll (or into one's own referrer).
+        _collectBet(player, amount);
 
         // Double: max return 2.5× → 4×. Split: two 1:1 hands → 4×. Insurance: +1.5× on a dealer natural.
         uint256 extraLock = (uint256(s.stake) * 3) / 2;
@@ -390,6 +393,9 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
             address player = _seats[roundId][seat].player;
             if (activeRoundOf[player] == roundId) activeRoundOf[player] = 0;
             BlackjackTableLib.SeatResult memory sr = res.seats[i];
+            (, uint256 extras, ) = _seatAmounts(_seats[roundId][seat]);
+            uint256 consumed = extras - sr.wagerRefund;
+            if (consumed > 0) _processExtraWagerFees(roundId, seat, player, consumed);
             if (sr.payout > 0) _payPlayer(player, sr.payout);
             bytes memory outcome = abi.encode(sr);
             emit SeatSettled(roundId, seat, player, sr.payout, plays[i].actions, plays[i].signedLen, outcome);
@@ -459,20 +465,31 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
      * @notice Refund every seat of a round that will not be played.
      *         - operator: an Open round at any time (table closing, nobody else bet…),
      *           or a Locked round whose random word never arrived after `settleTimeout`;
-     *         - anyone: any unsettled round after `refundTimeout` (from lock, or open).
+     *         - anyone: an Open round with bets, `refundTimeout` after its last bet (an empty
+     *           round is nobody's loss and stays with the operator), or a Locked round
+     *           `refundTimeout` after the lock.
+     *         A Locked round whose random word IS available could have been settled: if the
+     *         operator let it expire anyway, every seat is paid what the round had reserved
+     *         for it (FORFEITED) instead of its wagers — not settling is never the house's
+     *         cheaper option. Without a word (EXPIRED / CLOSED) the wagers go back gross.
      */
     function cancelRound(uint256 roundId) external nonReentrant {
         Round memory r = _rounds[roundId];
         if (r.status != RoundStatus.Open && r.status != RoundStatus.Locked) revert InvalidRound();
 
-        uint256 since = r.status == RoundStatus.Locked ? uint256(r.lockedAt) : uint256(r.openedAt);
-        bool anyonePath = block.timestamp >= since + uint256(tableConfig.refundTimeout);
-        if (!anyonePath) {
-            if (!gameOperators[msg.sender]) revert TimeoutNotReached();
-            if (r.status == RoundStatus.Locked) {
+        uint256 refundTimeout = uint256(tableConfig.refundTimeout);
+        bool forfeit = false;
+        if (r.status == RoundStatus.Locked) {
+            uint256 since = uint256(r.lockedAt);
+            if (block.timestamp >= since + refundTimeout) {
+                forfeit = _readRandomWord(r.requestId) != 0;
+            } else {
+                if (!gameOperators[msg.sender]) revert TimeoutNotReached();
                 if (block.timestamp < since + uint256(tableConfig.settleTimeout)) revert TimeoutNotReached();
                 if (_readRandomWord(r.requestId) != 0) revert RandomAlreadyFulfilled();
             }
+        } else if (!gameOperators[msg.sender]) {
+            if (r.seatCount == 0 || block.timestamp < uint256(r.lastBetAt) + refundTimeout) revert TimeoutNotReached();
         }
 
         _rounds[roundId].status = RoundStatus.Refunded;
@@ -482,20 +499,33 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
         for (uint8 seat = 0; seat < MAX_SEATS; seat++) {
             if (r.seatMask & (uint8(1) << seat) == 0) continue;
             Seat memory s = _seats[roundId][seat];
-            uint256 refund = _seatWagered(s);
+            (uint256 wagered, , uint256 lockedFor) = _seatAmounts(s);
+            uint256 refund = forfeit ? lockedFor : wagered;
             if (activeRoundOf[s.player] == roundId) activeRoundOf[s.player] = 0;
             _payPlayer(s.player, refund);
             emit SeatRefunded(roundId, seat, s.player, refund);
             emit BetFailed(_betId(roundId, seat), s.player, bytes32("REFUNDED"));
         }
-        emit RoundRefunded(roundId, r.tableId, r.status == RoundStatus.Open ? bytes32("CLOSED") : bytes32("EXPIRED"));
+        bytes32 reason = r.status == RoundStatus.Open ? bytes32("CLOSED") : (forfeit ? bytes32("FORFEITED") : bytes32("EXPIRED"));
+        emit RoundRefunded(roundId, r.tableId, reason);
     }
 
-    function _seatWagered(Seat memory s) internal pure returns (uint256 total) {
-        total = uint256(s.stake) + uint256(s.sideBet);
-        if (s.doubled) total += s.stake;
-        if (s.split) total += s.stake;
-        if (s.insured) total += uint256(s.stake) / 2;
+    /// @dev Fees on the extra wagers a seat actually played. The handler pulls `amount` from this
+    ///      contract and returns the net; if it refuses (game disabled there, player excluded…)
+    ///      the settle still goes through and the fees simply stay in the bankroll.
+    function _processExtraWagerFees(uint256 roundId, uint8 seat, address player, uint256 amount) internal {
+        // slither-disable-next-line unused-return
+        try paymentHandler.processDirectBetFromGame(player, address(0), amount) returns (uint256) {
+        } catch {
+            emit ExtraWagerFeeSkipped(roundId, seat, player, amount);
+        }
+    }
+
+    /// @dev Gross wagers collected, the extra wagers among them, and what the round reserved
+    ///      for the seat (summed over the seats, exactly `Round.locked`). Lives in the library
+    ///      to keep this contract under the code-size limit.
+    function _seatAmounts(Seat memory s) internal pure returns (uint256 wagered, uint256 extras, uint256 locked) {
+        return BlackjackTableLib.seatAmounts(s.stake, s.sideBet, s.doubled, s.split, s.insured);
     }
 
     function _betId(uint256 roundId, uint8 seat) internal pure returns (uint256) {
@@ -520,7 +550,7 @@ contract BlackjackTableGame is PullVRFGame, IBlackjackTableGame {
     }
 
     /// @notice Everything a seat has put into the round (stake, side bet and extras).
-    function seatWagered(uint256 roundId, uint8 seat) external view returns (uint256) {
-        return _seatWagered(_seats[roundId][seat]);
+    function seatWagered(uint256 roundId, uint8 seat) external view returns (uint256 wagered) {
+        (wagered, , ) = _seatAmounts(_seats[roundId][seat]);
     }
 }
